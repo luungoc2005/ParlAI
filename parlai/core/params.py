@@ -674,6 +674,13 @@ class ParlaiParser(argparse.ArgumentParser):
             help='batch size for minibatch training schemes',
         )
         parlai.add_argument(
+            '-update_freq',
+            '--update_freq',
+            default=1,
+            type=int,
+            help='gradient accumulation',
+        )
+        parlai.add_argument(
             '-dynb',
             '--dynamic-batching',
             default=None,

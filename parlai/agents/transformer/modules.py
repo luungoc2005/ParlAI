@@ -93,6 +93,7 @@ def _build_encoder(
         activation=opt['activation'],
         variant=opt['variant'],
         output_scaling=opt['output_scaling'],
+        tie_layers=opt['tie_layers']
     )
 
 
@@ -121,6 +122,7 @@ def _build_decoder(
         activation=opt['activation'],
         variant=opt['variant'],
         n_segments=n_segments,
+        tie_layers=opt['tie_layers']
     )
 
 
@@ -417,6 +419,7 @@ class TransformerEncoder(nn.Module):
         variant='aiayn',
         n_segments=0,
         output_scaling=1.0,
+        tie_layers=False,
     ):
         super(TransformerEncoder, self).__init__()
 
@@ -433,6 +436,7 @@ class TransformerEncoder(nn.Module):
         self.dropout = nn.Dropout(p=self.dropout_frac)
         self.variant = variant
         self.n_segments = n_segments
+        self.tie_layers = tie_layers
 
         self.n_positions = n_positions
         self.out_dim = embedding_size
@@ -470,7 +474,7 @@ class TransformerEncoder(nn.Module):
         # embedding normalization
         if self.variant == 'xlm' or self.variant == 'prelayernorm':
             self.norm_embeddings = LayerNorm(self.dim, eps=LAYER_NORM_EPS)
-        elif self.variant == 'aiayn':
+        elif self.variant == 'aiayn' or self.variant == 'rezero':
             pass
         else:
             raise ValueError("Can't handle --variant {}".format(self.variant))
@@ -479,20 +483,32 @@ class TransformerEncoder(nn.Module):
             self.segment_embeddings = nn.Embedding(self.n_segments, self.dim)
 
         # build the model
-        self.layers = nn.ModuleList()
-        for _ in range(self.n_layers):
-            self.layers.append(
-                TransformerEncoderLayer(
-                    n_heads,
-                    embedding_size,
-                    ffn_size,
-                    attention_dropout=attention_dropout,
-                    relu_dropout=relu_dropout,
-                    dropout=dropout,
-                    variant=variant,
-                    activation=activation,
-                )
+        if self.tie_layers:
+            self.layer = TransformerEncoderLayer(
+                n_heads,
+                embedding_size,
+                ffn_size,
+                attention_dropout=attention_dropout,
+                relu_dropout=relu_dropout,
+                dropout=dropout,
+                variant=variant,
+                activation=activation,
             )
+        else:
+            self.layers = nn.ModuleList()
+            for _ in range(self.n_layers):
+                self.layers.append(
+                    TransformerEncoderLayer(
+                        n_heads,
+                        embedding_size,
+                        ffn_size,
+                        attention_dropout=attention_dropout,
+                        relu_dropout=relu_dropout,
+                        dropout=dropout,
+                        variant=variant,
+                        activation=activation,
+                    )
+                )
         self.output_scaling = output_scaling
 
     def forward(self, input, positions=None, segments=None):
@@ -536,7 +552,10 @@ class TransformerEncoder(nn.Module):
 
         tensor *= mask.unsqueeze(-1).type_as(tensor)
         for i in range(self.n_layers):
-            tensor = self.layers[i](tensor, mask)
+            if self.tie_layers:
+                tensor = self.layer(tensor, mask)
+            else:
+                tensor = self.layers[i](tensor, mask)
         if self.variant == 'prelayernorm':
             tensor = _normalize(tensor, self.norm_embeddings)
         tensor *= self.output_scaling
@@ -580,14 +599,19 @@ class TransformerEncoderLayer(nn.Module):
         self.attention = MultiHeadAttention(
             n_heads, embedding_size, dropout=attention_dropout  # --attention-dropout
         )
-        self.norm1 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
         self.ffn = TransformerFFN(
             embedding_size,
             ffn_size,
             relu_dropout=relu_dropout,
             activation=self.activation,
         )
-        self.norm2 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
+
+        if self.variant == 'rezero':
+            self.resweight = nn.Parameter(torch.Tensor([0]))
+        else:
+            self.norm1 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
+            self.norm2 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
+
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, tensor, mask):
@@ -599,13 +623,18 @@ class TransformerEncoderLayer(nn.Module):
         if self.variant == 'prelayernorm':
             tensor = _normalize(tensor, self.norm1)
         attended_tensor, _ = self.attention(tensor, mask=mask)
+        if self.variant == 'rezero':
+            residual = residual * self.resweight
         tensor = residual + self.dropout(attended_tensor)
         if self.variant == 'aiayn' or self.variant == 'xlm':
             tensor = _normalize(tensor, self.norm1)
         residual = tensor
         if self.variant == 'prelayernorm':
             tensor = _normalize(tensor, self.norm2)
-        tensor = residual + self.dropout(self.ffn(tensor))
+        src2 = self.dropout(self.ffn(tensor))
+        if self.variant == 'rezero':
+            src2 = src2 * self.resweight
+        tensor = residual + src2
         if self.variant == 'aiayn' or self.variant == 'xlm':
             tensor = _normalize(tensor, self.norm2)
         tensor *= mask.unsqueeze(-1).type_as(tensor)
@@ -655,6 +684,7 @@ class TransformerDecoder(nn.Module):
         n_segments=0,
         variant='aiayn',
         activation='relu',
+        tie_layers=False,
     ):
         super().__init__()
         self.embedding_size = embedding_size
@@ -670,6 +700,8 @@ class TransformerDecoder(nn.Module):
 
         self.n_positions = n_positions
         self.out_dim = embedding_size
+        self.tie_layers = tie_layers
+
         assert (
             embedding_size % n_heads == 0
         ), 'Transformer embedding size must be a multiple of n_heads'
@@ -678,7 +710,7 @@ class TransformerDecoder(nn.Module):
 
         if self.variant == 'xlm' or self.variant == 'prelayernorm':
             self.norm_embeddings = LayerNorm(self.dim, eps=LAYER_NORM_EPS)
-        elif self.variant == 'aiayn':
+        elif self.variant == 'aiayn' or self.variant == 'rezero':
             pass
         else:
             raise ValueError("Can't handle --variant {}".format(self.variant))
@@ -693,20 +725,32 @@ class TransformerDecoder(nn.Module):
             nn.init.normal_(self.position_embeddings.weight, 0, embedding_size ** -0.5)
 
         # build the model
-        self.layers = nn.ModuleList()
-        for _ in range(self.n_layers):
-            self.layers.append(
-                TransformerDecoderLayer(
-                    n_heads,
-                    embedding_size,
-                    ffn_size,
-                    attention_dropout=attention_dropout,
-                    relu_dropout=relu_dropout,
-                    dropout=dropout,
-                    activation=activation,
-                    variant=variant,
-                )
+        if self.tie_layers:
+            self.layer = TransformerDecoderLayer(
+                n_heads,
+                embedding_size,
+                ffn_size,
+                attention_dropout=attention_dropout,
+                relu_dropout=relu_dropout,
+                dropout=dropout,
+                activation=activation,
+                variant=variant,
             )
+        else:
+            self.layers = nn.ModuleList()
+            for _ in range(self.n_layers):
+                self.layers.append(
+                    TransformerDecoderLayer(
+                        n_heads,
+                        embedding_size,
+                        ffn_size,
+                        attention_dropout=attention_dropout,
+                        relu_dropout=relu_dropout,
+                        dropout=dropout,
+                        activation=activation,
+                        variant=variant,
+                    )
+                )
 
     def forward(self, input, encoder_state, incr_state=None):
         """
@@ -732,7 +776,7 @@ class TransformerDecoder(nn.Module):
             if positions is not None:
                 positions = positions[:, -1:]
         else:
-            incr_state = {idx: {} for idx in range(len(self.layers))}
+            incr_state = {idx: {} for idx in range(self.n_layers)}
 
         tensor = self.embeddings(input)
         if self.embeddings_scale:
@@ -750,13 +794,21 @@ class TransformerDecoder(nn.Module):
         tensor = self.dropout(tensor)  # --dropout
 
         new_incr_state = {}
-        for idx, layer in enumerate(self.layers):
-            tensor, new_incr_state[idx] = layer(
-                x=tensor,
-                encoder_output=encoder_output,
-                encoder_mask=encoder_mask,
-                incr_state=incr_state[idx],
-            )
+        for idx in range(self.n_layers):
+            if self.tie_layers:
+                tensor, new_incr_state[idx] = self.layer(
+                    x=tensor,
+                    encoder_output=encoder_output,
+                    encoder_mask=encoder_mask,
+                    incr_state=incr_state[idx],
+                )
+            else:
+                tensor, new_incr_state[idx] = self.layers[idx](
+                    x=tensor,
+                    encoder_output=encoder_output,
+                    encoder_mask=encoder_mask,
+                    incr_state=incr_state[idx],
+                )
         if self.variant == 'prelayernorm':
             tensor = _normalize(tensor, self.norm_embeddings)
 
@@ -794,17 +846,20 @@ class TransformerDecoderLayer(nn.Module):
         self.self_attention = MultiHeadAttention(
             n_heads, embedding_size, dropout=attention_dropout
         )
-        self.norm1 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
 
         self.encoder_attention = MultiHeadAttention(
             n_heads, embedding_size, dropout=attention_dropout
         )
-        self.norm2 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
 
         self.ffn = TransformerFFN(
             embedding_size, ffn_size, relu_dropout=relu_dropout, activation=activation
         )
-        self.norm3 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
+        if self.variant == 'rezero':
+            self.resweight = nn.Parameter(torch.Tensor([0]))
+        else:
+            self.norm1 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
+            self.norm2 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
+            self.norm3 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
 
     def forward(self, x, encoder_output, encoder_mask, incr_state=None):
         """
@@ -831,6 +886,8 @@ class TransformerDecoderLayer(nn.Module):
             static_kv=False,
         )
         x = self.dropout(x)  # --dropout
+        if self.variant == 'rezero':
+            residual = residual * self.resweight
         x = x + residual
         if self.variant == 'aiayn' or self.variant == 'xlm':
             x = _normalize(x, self.norm1)
@@ -848,6 +905,8 @@ class TransformerDecoderLayer(nn.Module):
             static_kv=True,
         )
         x = self.dropout(x)  # --dropout
+        if self.variant == 'rezero':
+            x = x * self.resweight
         x = residual + x
         if self.variant == 'aiayn' or self.variant == 'xlm':
             x = _normalize(x, self.norm2)
@@ -858,6 +917,8 @@ class TransformerDecoderLayer(nn.Module):
             x = _normalize(x, self.norm3)
         x = self.ffn(x)
         x = self.dropout(x)  # --dropout
+        if self.variant == 'rezero':
+            x = x * self.resweight
         x = residual + x
         if self.variant == 'aiayn' or self.variant == 'xlm':
             x = _normalize(x, self.norm3)
@@ -965,10 +1026,16 @@ class TransformerGeneratorModel(TorchGeneratorModel):
         Here, incremental_state is a dict whose keys are layer indices and whose values
         are dicts containing the incremental state for that layer.
         """
-        return {
-            idx: layer.reorder_incremental_state(incremental_state[idx], inds)
-            for idx, layer in enumerate(self.decoder.layers)
-        }
+        if self.decoder.tie_layers:
+            return {
+                idx: self.decoder.layer.reorder_incremental_state(incremental_state[idx], inds)
+                for idx in range(self.decoder.n_layers)
+            }
+        else:
+            return {
+                idx: layer.reorder_incremental_state(incremental_state[idx], inds)
+                for idx, layer in enumerate(self.decoder.layers)
+            }
 
     def output(self, tensor):
         """

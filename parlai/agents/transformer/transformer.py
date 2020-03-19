@@ -76,7 +76,7 @@ def add_common_cmdline_args(argparser):
     )
     argparser.add_argument(
         '--variant',
-        choices={'aiayn', 'xlm', 'prelayernorm'},
+        choices={'aiayn', 'xlm', 'prelayernorm', 'rezero'},
         default='aiayn',
         help='Chooses locations of layer norms, etc. prelayernorm '
         'is used to match some fairseq models',
@@ -116,6 +116,13 @@ def add_common_cmdline_args(argparser):
         type=int,
         default=-1,
         help='This will overide the n-layers for asymmetrical transformers',
+    )
+    argparser.add_argument(
+        '-tie_layers',
+        '--tie_layers',
+        action='store_true',
+        default=False,
+        help='Enable shared encoder/decoder layers',
     )
 
 

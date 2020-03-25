@@ -361,9 +361,9 @@ class TorchAgent(Agent):
             kwargs['momentum'] = opt['momentum']
             if opt['optimizer'] == 'sgd':
                 kwargs['nesterov'] = True
-        if opt['optimizer'] == 'adam':
-            # amsgrad paper: https://openreview.net/forum?id=ryQu7f-RZ
-            kwargs['amsgrad'] = True
+        # if opt['optimizer'] == 'adam':
+        #     # amsgrad paper: https://openreview.net/forum?id=ryQu7f-RZ
+        #     kwargs['amsgrad'] = True
 
         optim_class = self.OPTIM_OPTS[opt['optimizer']]
         self.optimizer = optim_class(params, **kwargs)

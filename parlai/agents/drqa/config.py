@@ -208,7 +208,7 @@ def override_args(opt, override_opt):
             'doc_layers',
             'question_layers',
             'rnn_type',
-            'optimizer',
+            # 'optimizer',
             'concat_rnn_layers',
             'question_merge',
             'use_qemb',

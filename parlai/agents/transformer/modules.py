@@ -472,9 +472,9 @@ class TransformerEncoder(nn.Module):
             nn.init.normal_(self.position_embeddings.weight, 0, embedding_size ** -0.5)
 
         # embedding normalization
-        if self.variant == 'xlm' or self.variant == 'prelayernorm':
+        if self.variant == 'xlm' or self.variant == 'prelayernorm' or self.variant == 'rezero':
             self.norm_embeddings = LayerNorm(self.dim, eps=LAYER_NORM_EPS)
-        elif self.variant == 'aiayn' or self.variant == 'rezero':
+        elif self.variant == 'aiayn':
             pass
         else:
             raise ValueError("Can't handle --variant {}".format(self.variant))

@@ -155,7 +155,7 @@ def download(url, path, fname, redownload=False):
     outfile = os.path.join(path, fname)
     download = not os.path.isfile(outfile) or redownload
     print("[ downloading: " + url + " to " + outfile + " ]")
-    retry = 5
+    retry = 1000
     exp_backoff = [2 ** r for r in reversed(range(retry))]
 
     pbar = tqdm.tqdm(unit='B', unit_scale=True, desc='Downloading {}'.format(fname))

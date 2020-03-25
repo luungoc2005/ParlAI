@@ -7,6 +7,7 @@
 from parlai.core.teachers import FbDialogTeacher
 from .build_2009 import build as build_2009
 from .build_2018 import build as build_2018
+from tqdm import tqdm
 
 import copy
 import os
@@ -74,7 +75,7 @@ class FullTeacher(FbDialogTeacher):
         # this shows conversations in both directions
         # we skip examples for which no label is present
         alternate = []
-        for entry, new in super().setup_data(path):
+        for entry, new in tqdm(super().setup_data(path)):
             if new:
                 for i, e in enumerate(rebuild(alternate)):
                     if e[1]:

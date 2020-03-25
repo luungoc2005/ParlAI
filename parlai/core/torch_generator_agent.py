@@ -404,11 +404,16 @@ class TorchGeneratorAgent(TorchAgent, ABC):
             and (shared is None or self.opt.get('numthreads', 1) > 1)
         ):
             # do this regardless of share state, but don't
-            self.init_optim(
-                [p for p in self.model.parameters() if p.requires_grad],
-                optim_states=states.get('optimizer'),
-                saved_optim_type=states.get('optimizer_type'),
-            )
+            if not is_finetune:
+                self.init_optim(
+                    [p for p in self.model.parameters() if p.requires_grad],
+                    optim_states=states.get('optimizer'),
+                    saved_optim_type=states.get('optimizer_type'),
+                )
+            else:
+                self.init_optim(
+                    [p for p in self.model.parameters() if p.requires_grad],
+                )
             self.build_lr_scheduler(states, hard_reset=is_finetune)
 
         if shared is None and is_distributed():

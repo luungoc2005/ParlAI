@@ -219,6 +219,12 @@ class DictionaryAgent(Agent):
             'Tasks with additional fields may add to this list to handle '
             'any extra vocabulary.',
         )
+        dictionary.add_argument(
+            '--dict-extratokens',
+            default=0,
+            type=int,
+            help='Number of extra tokens to add to the dictionary.',
+        )
         dictionary = HuggingFaceBpeHelper.add_cmdline_args(dictionary)
         return dictionary
 
@@ -241,6 +247,7 @@ class DictionaryAgent(Agent):
         self.textfields = opt.get(
             'dict_textfields', DictionaryAgent.default_textfields
         ).split(",")
+        self.extra_tokens = opt.get('dict_extratokens', 0)
 
         try:
             self.tokenizer_fun = getattr(self, self.tokenizer + '_tokenize')
@@ -421,7 +428,7 @@ class DictionaryAgent(Agent):
             return self._index_lookup(key)
 
     def __len__(self):
-        return len(self.tok2ind)
+        return len(self.tok2ind) + self.extra_tokens
 
     def __setitem__(self, key, value):
         """

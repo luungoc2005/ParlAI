@@ -47,7 +47,6 @@ from parlai.utils.distributed import (
 )
 from parlai.utils.misc import Timer, nice_report
 
-
 def setup_args(parser=None) -> ParlaiParser:
     """
     Build the ParlAI parser, adding command line args if necessary.
@@ -745,5 +744,12 @@ class TrainLoop:
 
 
 if __name__ == '__main__':
+
+    try:
+        import torch.multiprocessing as multiprocessing
+    except ImportError:
+        import multiprocessing  # type: ignore
+
+    multiprocessing.set_start_method('spawn')
     TrainLoop(setup_args().parse_args()).train()
     print()

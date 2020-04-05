@@ -34,7 +34,6 @@ from parlai.core.metrics import SumMetric, AverageMetric, BleuMetric, FairseqBle
 from parlai.utils.fp16 import FP16SafeCrossEntropy
 from parlai.utils.torch import neginf
 
-
 try:
     from nltk.translate import bleu_score as nltkbleu
 
@@ -244,7 +243,10 @@ class TorchGeneratorModel(nn.Module, ABC):
 
 class PPLMetric(AverageMetric):
     def value(self):
-        return math.exp(super().value())
+        try:
+            return math.exp(super().value())
+        except:
+            return 0
 
 
 class TorchGeneratorAgent(TorchAgent, ABC):

@@ -10,6 +10,7 @@ from parlai.utils.torch import padded_3d
 from parlai.core.torch_classifier_agent import TorchClassifierAgent
 from parlai.core.torch_ranker_agent import TorchRankerAgent
 from parlai.core.torch_generator_agent import TorchGeneratorAgent
+from parlai.core.torch_generator_extra import TorchGeneratorWithTokenType, TorchGeneratorWithSepToken
 
 from .modules import (
     TransformerMemNetModel,
@@ -337,6 +338,65 @@ class TransformerGeneratorAgent(TorchGeneratorAgent):
             )
         return model
 
+class TransformerGeneratorWithSepTokenAgent(TorchGeneratorWithSepToken):
+    """
+    TransformerGeneratorAgent.
+
+    Implementation of TorchGeneratorAgent, where the model is a Transformer
+    """
+
+    @classmethod
+    def add_cmdline_args(cls, argparser):
+        """
+        Add command-line arguments specifically for this agent.
+        """
+        agent = argparser.add_argument_group('Transformer Arguments')
+        add_common_cmdline_args(agent)
+        cls.dictionary_class().add_cmdline_args(argparser)
+
+        super(TransformerGeneratorWithSepTokenAgent, cls).add_cmdline_args(argparser)
+        return agent
+
+    def build_model(self, states=None):
+        """
+        Build and return model.
+        """
+        model = TransformerGeneratorModel(self.opt, self.dict)
+        if self.opt['embedding_type'] != 'random':
+            self._copy_embeddings(
+                model.encoder.embeddings.weight, self.opt['embedding_type']
+            )
+        return model
+
+class TransformerGeneratorWithTokenTypeAgent(TorchGeneratorWithTokenType):
+    """
+    TransformerGeneratorAgent.
+
+    Implementation of TorchGeneratorAgent, where the model is a Transformer
+    """
+
+    @classmethod
+    def add_cmdline_args(cls, argparser):
+        """
+        Add command-line arguments specifically for this agent.
+        """
+        agent = argparser.add_argument_group('Transformer Arguments')
+        add_common_cmdline_args(agent)
+        cls.dictionary_class().add_cmdline_args(argparser)
+
+        super(TransformerGeneratorWithTokenTypeAgent, cls).add_cmdline_args(argparser)
+        return agent
+
+    def build_model(self, states=None):
+        """
+        Build and return model.
+        """
+        model = TransformerGeneratorModel(self.opt, self.dict)
+        if self.opt['embedding_type'] != 'random':
+            self._copy_embeddings(
+                model.encoder.embeddings.weight, self.opt['embedding_type']
+            )
+        return model
 
 class TransformerClassifierAgent(TorchClassifierAgent):
     """

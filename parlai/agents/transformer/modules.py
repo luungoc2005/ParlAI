@@ -480,7 +480,10 @@ class TransformerEncoder(nn.Module):
             raise ValueError("Can't handle --variant {}".format(self.variant))
 
         if self.n_segments >= 1:
-            self.segment_embeddings = nn.Embedding(self.n_segments, self.dim)
+            self.segment_embeddings = nn.Embedding(
+                self.n_segments, self.dim, padding_idx=padding_idx
+            )
+            nn.init.normal_(self.segment_embeddings.weight, 0, embedding_size ** -0.5)
 
         # build the model
         if self.tie_layers:

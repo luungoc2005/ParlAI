@@ -112,6 +112,7 @@ class DictionaryAgent(Agent):
     default_start = '__start__'
     default_end = '__end__'
     default_unk = '__unk__'
+    default_sep = None
     default_tok = 're'
     default_lower = False
     default_textfields = 'text,labels'
@@ -190,6 +191,12 @@ class DictionaryAgent(Agent):
             help='token to return for unavailable words',
         )
         dictionary.add_argument(
+            '--dict-septoken',
+            default=DictionaryAgent.default_sep,
+            hidden=True,
+            help='token for separator',
+        )
+        dictionary.add_argument(
             '-tok',
             '--dict-tokenizer',
             default=DictionaryAgent.default_tok,
@@ -238,6 +245,7 @@ class DictionaryAgent(Agent):
         self.end_token = opt.get('dict_endtoken', DictionaryAgent.default_end)
         self.unk_token = opt.get('dict_unktoken', DictionaryAgent.default_unk)
         self.start_token = opt.get('dict_starttoken', DictionaryAgent.default_start)
+        self.sep_token = opt.get('dict_septoken', DictionaryAgent.default_sep)
         self.max_ngram_size = opt.get(
             'dict_max_ngram_size', DictionaryAgent.default_maxngram
         )
@@ -279,6 +287,9 @@ class DictionaryAgent(Agent):
             if self.unk_token:
                 # set special unknown word token
                 self.add_token(self.unk_token)
+
+            if self.sep_token:
+                self.add_token(self.sep_token)
 
             loaded = False
             # If data built via pytorch data teacher, we need to load prebuilt dict
@@ -367,19 +378,22 @@ class DictionaryAgent(Agent):
         if not shared:
             if self.null_token:
                 # fix count for null token to one billion and three
-                self.freq[self.null_token] = 1000000003
+                self.freq[self.null_token] = 1000000004
 
             if self.start_token:
                 # fix count for start of sentence token to one billion and two
-                self.freq[self.start_token] = 1000000002
+                self.freq[self.start_token] = 1000000003
 
             if self.end_token:
                 # fix count for end of sentence token to one billion and one
-                self.freq[self.end_token] = 1000000001
+                self.freq[self.end_token] = 1000000002
 
             if self.unk_token:
                 # fix count for unknown token to one billion
-                self.freq[self.unk_token] = 1000000000
+                self.freq[self.unk_token] = 1000000001
+
+            if self.sep_token:
+                self.freq[self.sep_token] = 1000000000
 
             if opt.get('dict_file'):
                 self.save_path = opt['dict_file']

@@ -561,7 +561,10 @@ class TransformerEncoder(nn.Module):
 
         tensor *= mask.unsqueeze(-1).type_as(tensor)
 
-        if getattr(self.layers, 'is_model_parallel', False):
+        is_model_parallel = getattr(self.layer, 'is_model_parallel', False) \
+            if self.tie_layers \
+            else getattr(self.layers, 'is_model_parallel', False)
+        if is_model_parallel:
             # factored out for readability. It is equivalent to the other
             # condition
             tensor = self._apply_model_parallel(tensor, mask)
@@ -827,7 +830,12 @@ class TransformerDecoder(nn.Module):
         tensor = self.dropout(tensor)  # --dropout
 
         new_incr_state = {}
-        if getattr(self.layers, 'is_model_parallel', False):
+
+        is_model_parallel = getattr(self.layer, 'is_model_parallel', False) \
+            if self.tie_layers \
+            else getattr(self.layers, 'is_model_parallel', False)
+        
+        if is_model_parallel:
             tensor, new_incr_state = self._apply_model_parallel(
                 tensor, encoder_output, encoder_mask, incr_state
             )

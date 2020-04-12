@@ -9,7 +9,7 @@ Contains code for parsing and building a dictionary from text.
 
 from parlai.core.opt import Opt
 from parlai.core.build_data import modelzoo_path
-from parlai.utils.bpe import bpe_factory, BPEHelper
+from parlai.utils.bpe import bpe_factory, BPEHelper, HuggingFaceBpeHelper
 from .agents import Agent
 from .build_data import make_dir
 from collections import defaultdict

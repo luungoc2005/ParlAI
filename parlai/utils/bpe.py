@@ -177,7 +177,7 @@ class BPEHelper(ABC):
         if not self.debug:
             text = self.helper_decode(tokens, token_ids, delimiter)
             if self.add_prefix_space:
-                assert text.startswith(' ')
+                # assert text.startswith(' ')
                 text = text.lstrip(' ')
         return text
 

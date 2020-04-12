@@ -10,7 +10,7 @@ Torch Classifier Agents classify text into a fixed set of labels.
 
 
 from parlai.core.opt import Opt
-from parlai.utils.distributed import is_distributed
+from parlai.utils.torch import PipelineHelper
 from parlai.core.torch_agent import TorchAgent, Output
 from parlai.utils.misc import round_sigfigs, warn_once
 from parlai.core.metrics import AverageMetric
@@ -159,24 +159,23 @@ class TorchClassifierAgent(TorchAgent):
                 raise AttributeError(
                     'build_model() and build_criterion() need to return the model or criterion'
                 )
-            if self.use_cuda:
-                self.model.cuda()
-                self.criterion.cuda()
             if init_model:
                 print('Loading existing model parameters from ' + init_model)
                 self.load(init_model)
             if self.use_cuda:
-                if self.opt['data_parallel']:
-                    if is_distributed():
-                        raise ValueError(
-                            'Cannot combine --data-parallel and distributed mode'
-                        )
+                if self.model_parallel:
+                    self.model = PipelineHelper().make_parallel(self.model)
+                else:
+                    self.model.cuda()
+                if self.data_parallel:
                     self.model = torch.nn.DataParallel(self.model)
+                self.criterion.cuda()
+
         if shared:
             # We don't use get here because hasattr is used on optimizer later.
             if 'optimizer' in shared:
                 self.optimizer = shared['optimizer']
-        else:
+        elif self._should_initialize_optimizer():
             optim_params = [p for p in self.model.parameters() if p.requires_grad]
             self.init_optim(optim_params)
             self.build_lr_scheduler()

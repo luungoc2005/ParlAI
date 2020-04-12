@@ -21,12 +21,13 @@ from typing import Dict, Tuple, Optional
 
 import numpy as np
 import torch
+import torch.cuda
 import torch.nn as nn
 import torch.nn.functional as F
 
 from parlai.core.torch_generator_agent import TorchGeneratorModel
 from parlai.utils.misc import warn_once
-from parlai.utils.torch import neginf
+from parlai.utils.torch import neginf, PipelineHelper
 
 try:
     from apex.normalization.fused_layer_norm import FusedLayerNorm as LayerNorm
@@ -44,10 +45,15 @@ def _normalize(tensor, norm_layer):
     """
     Broadcast layer norm.
     """
-    if not APEX_LAYER_NORM:
-        warn_once("Installing APEX can give a significant speed boost.")
-    size = tensor.size()
-    return norm_layer(tensor.view(-1, size[-1])).view(size)
+    is_cpu = tensor.device == 'cpu' or tensor.device.type == 'cpu'
+    if APEX_LAYER_NORM and not is_cpu:
+        # fused_layer_norm has a bug around multi-device networks.
+        # https://github.com/NVIDIA/apex/issues/770
+        # https://github.com/NVIDIA/apex/issues/371
+        with torch.cuda.device(tensor.device):
+            return norm_layer(tensor)
+    else:
+        return norm_layer(tensor)
 
 
 def _create_embeddings(dictionary, embedding_size, padding_idx):
@@ -554,11 +560,18 @@ class TransformerEncoder(nn.Module):
         tensor = self.dropout(tensor)
 
         tensor *= mask.unsqueeze(-1).type_as(tensor)
-        for i in range(self.n_layers):
-            if self.tie_layers:
-                tensor = self.layer(tensor, mask)
-            else:
-                tensor = self.layers[i](tensor, mask)
+
+        if getattr(self.layers, 'is_model_parallel', False):
+            # factored out for readability. It is equivalent to the other
+            # condition
+            tensor = self._apply_model_parallel(tensor, mask)
+        else:
+            for i in range(self.n_layers):
+                if self.tie_layers:
+                    tensor = self.layer(tensor, mask)
+                else:
+                    tensor = self.layers[i](tensor, mask)
+
         if self.variant == 'prelayernorm':
             tensor = _normalize(tensor, self.norm_embeddings)
         tensor *= self.output_scaling
@@ -576,6 +589,22 @@ class TransformerEncoder(nn.Module):
             raise ValueError(
                 "Can't handle --reduction-type {}".format(self.reduction_type)
             )
+
+    def _apply_model_parallel(self, tensor, mask):
+        """
+        Pipeline application of model parallelism.
+        """
+        chunks = PipelineHelper.split((tensor, mask))
+        work_items = PipelineHelper.schedule_work_items(self.layers, chunks)
+
+        for chunk_idx, layer_nos, next_device in work_items:
+            s_tensor, s_mask = chunks[chunk_idx]
+            for layer_no in layer_nos:
+                s_tensor = self.layers[layer_no](s_tensor, s_mask)
+            chunks[chunk_idx] = PipelineHelper.chunk_to((s_tensor, s_mask), next_device)
+
+        tensor_out, mask_out = PipelineHelper.join(chunks)
+        return tensor_out
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -779,6 +808,7 @@ class TransformerDecoder(nn.Module):
             if positions is not None:
                 positions = positions[:, -1:]
         else:
+            incr_state = {}
             incr_state = {idx: {} for idx in range(self.n_layers)}
 
         tensor = self.embeddings(input)
@@ -797,25 +827,68 @@ class TransformerDecoder(nn.Module):
         tensor = self.dropout(tensor)  # --dropout
 
         new_incr_state = {}
-        for idx in range(self.n_layers):
-            if self.tie_layers:
-                tensor, new_incr_state[idx] = self.layer(
-                    x=tensor,
-                    encoder_output=encoder_output,
-                    encoder_mask=encoder_mask,
-                    incr_state=incr_state[idx],
-                )
-            else:
-                tensor, new_incr_state[idx] = self.layers[idx](
-                    x=tensor,
-                    encoder_output=encoder_output,
-                    encoder_mask=encoder_mask,
-                    incr_state=incr_state[idx],
-                )
+        if getattr(self.layers, 'is_model_parallel', False):
+            tensor, new_incr_state = self._apply_model_parallel(
+                tensor, encoder_output, encoder_mask, incr_state
+            )
+        else:
+            for idx in range(self.n_layers):
+                if self.tie_layers:
+                    tensor, new_incr_state[idx] = self.layer(
+                        x=tensor,
+                        encoder_output=encoder_output,
+                        encoder_mask=encoder_mask,
+                        incr_state=incr_state.get(idx),
+                    )
+                else:
+                    tensor, new_incr_state[idx] = self.layers[idx](
+                        x=tensor,
+                        encoder_output=encoder_output,
+                        encoder_mask=encoder_mask,
+                        incr_state=incr_state.get(idx),
+                    )
+
         if self.variant == 'prelayernorm':
             tensor = _normalize(tensor, self.norm_embeddings)
 
         return tensor, new_incr_state
+
+    def _apply_model_parallel(self, tensor, encoder_output, encoder_mask, incr_state):
+        """
+        Pipeline application of model parallelism.
+        """
+        chunks = PipelineHelper.split(
+            (tensor, encoder_output, encoder_mask, incr_state)
+        )
+        work_items = PipelineHelper.schedule_work_items(self.layers, chunks)
+
+        new_incr_state = [{} for _ in chunks]
+
+        for chunk_idx, layer_nos, next_device in work_items:
+            s_tensor, s_enc_out, s_enc_mask, s_incr_state = chunks[chunk_idx]
+            for layer_no in layer_nos:
+                if self.tie_layers:
+                    s_tensor, new_incr_state[chunk_idx][layer_no] = self.layer(
+                        x=s_tensor,
+                        encoder_output=s_enc_out,
+                        encoder_mask=s_enc_mask,
+                        incr_state=s_incr_state.get(layer_no),
+                    )
+                else:
+                    s_tensor, new_incr_state[chunk_idx][layer_no] = self.layers[layer_no](
+                        x=s_tensor,
+                        encoder_output=s_enc_out,
+                        encoder_mask=s_enc_mask,
+                        incr_state=s_incr_state.get(layer_no),
+                    )
+            chunks[chunk_idx] = PipelineHelper.chunk_to(
+                (s_tensor, s_enc_out, s_enc_mask, s_incr_state), next_device
+            )
+
+        tensor_out = PipelineHelper.join([c[0] for c in chunks])
+        new_incr_state = PipelineHelper.join(new_incr_state)
+
+        return tensor_out, new_incr_state
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -1275,7 +1348,7 @@ class MultiHeadAttention(nn.Module):
         Reorder the input incremental-state tensors.
         """
         return {
-            key: torch.index_select(val, 0, inds).contiguous()
+            key: torch.index_select(val, 0, inds.to(val.device)).contiguous()
             for key, val in incremental_state.items()
         }
 

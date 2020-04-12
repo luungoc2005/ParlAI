@@ -12,6 +12,7 @@ Example: python examples/eval_model.py -m local_human -t babi:Task1k:1 -dt valid
 from parlai.core.agents import Agent
 from parlai.core.message import Message
 from parlai.utils.misc import display_messages, load_cands
+from parlai.utils.strings import colorize
 
 
 class LocalHumanAgent(Agent):
@@ -38,8 +39,17 @@ class LocalHumanAgent(Agent):
         super().__init__(opt)
         self.id = 'localHuman'
         self.episodeDone = False
+        self.finished = False
         self.fixedCands_txt = load_cands(self.opt.get('local_human_candidates_file'))
-        print("Enter [DONE] if you want to end the episode.\n")
+        print(
+            colorize(
+                "Enter [DONE] if you want to end the episode, [EXIT] to quit.",
+                'highlight',
+            )
+        )
+
+    def epoch_done(self):
+        return self.finished
 
     def observe(self, msg):
         print(
@@ -53,7 +63,7 @@ class LocalHumanAgent(Agent):
     def act(self):
         reply = Message()
         reply['id'] = self.getID()
-        reply_text = input("Enter Your Message: ")
+        reply_text = input(colorize("Enter Your Message:", 'field') + ' ')
         reply_text = reply_text.replace('\\n', '\n')
         if self.opt.get('single_turn', False):
             reply_text += '[DONE]'
@@ -64,6 +74,8 @@ class LocalHumanAgent(Agent):
             self.episodeDone = True
             reply_text = reply_text.replace('[DONE]', '')
         reply['text'] = reply_text
+        if '[EXIT]' in reply_text:
+            self.finished = True
         return reply
 
     def episode_done(self):

@@ -45,7 +45,6 @@ import copy
 import random
 import time
 
-from functools import lru_cache
 from typing import List, Dict, Any, Union
 
 try:
@@ -57,7 +56,7 @@ from parlai.core.agents import create_agents_from_shared
 from parlai.core.loader import load_task_module, load_world_module
 from parlai.core.metrics import aggregate_named_reports
 from parlai.core.opt import Opt
-from parlai.core.teachers import create_task_agent_from_taskname
+from parlai.core.teachers import Teacher, create_task_agent_from_taskname
 from parlai.utils.misc import Timer, display_messages
 from parlai.tasks.tasks import ids_to_tasks
 
@@ -123,6 +122,7 @@ class World(object):
             ignore_fields=self.opt.get('display_ignore_fields', ''),
             prettify=self.opt.get('display_prettify', False),
             max_len=self.opt.get('max_display_len', 1000),
+            verbose=self.opt.get('display_verbose', False),
         )
 
     def episode_done(self):
@@ -379,7 +379,6 @@ class DialogPartnerWorld(World):
             self.total_exs += metrics['exs'].value()
         return metrics
 
-    @lru_cache(maxsize=1)
     def num_examples(self):
         """
         Return number of examples.
@@ -613,6 +612,20 @@ class MultiWorld(World):
                 weight = 1
             self.cum_task_weights[i] = weight + sum
             sum += weight
+        task_ids: Dict[str, Teacher] = {}
+        # Having overlap in teacher ids will cause issues for metrics aggregation.
+        for each_world in self.worlds:
+            world_id = each_world.getID()
+            if world_id in task_ids:
+                raise AssertionError(
+                    '{} and {} teachers have overlap in id {}.'.format(
+                        task_ids[world_id],
+                        each_world.get_agents()[0].__class__,
+                        world_id,
+                    )
+                )
+            else:
+                task_ids[world_id] = each_world.get_task_agent()
 
     def num_examples(self):
         """
@@ -1424,12 +1437,14 @@ class HogwildWorld(World):
         """
         return self.inner_world.getID()
 
-    @lru_cache(maxsize=1)
     def num_examples(self):
         """
         Return the number of examples.
         """
-        return self.inner_world.num_examples()
+        if hasattr(self, '_num_examples'):
+            return self._num_examples_cache
+        self._num_examples_cache = self.inner_world.num_examples()
+        return self._num_examples_cache
 
     def num_episodes(self):
         """

@@ -459,6 +459,23 @@ class TestTransformerGenerator(unittest.TestCase):
             )
         )
 
+    def test_beamdelay(self):
+        """
+        Test delayedbeam generation.
+        """
+        # Delayed Beam is inherently stochastic, just ensure no crash.
+        testing_utils.eval_model(
+            dict(
+                task='integration_tests:multiturn_candidate',
+                model='transformer/generator',
+                model_file='zoo:unittest/transformer_generator2/model',
+                batchsize=32,
+                inference='delayedbeam',
+                topk=10,
+                beam_delay=5,
+            )
+        )
+
     def test_topk(self):
         """
         Test topk generation.
@@ -479,22 +496,18 @@ class TestTransformerGenerator(unittest.TestCase):
         """
         Tests that the generator model files work over time.
         """
-        valid, test = testing_utils.eval_model(
+        _, test = testing_utils.eval_model(
             dict(
                 task='integration_tests:multiturn_candidate',
                 model='transformer/generator',
                 model_file='zoo:unittest/transformer_generator2/model',
                 dict_file='zoo:unittest/transformer_generator2/model.dict',
-                rank_candidates=True,
+                rank_candidates=False,
                 batch_size=64,
-            )
+            ),
+            skip_valid=True,
         )
 
-        self.assertGreaterEqual(valid['hits@1'], 0.95)
-        self.assertLessEqual(valid['ppl'], 1.01)
-        self.assertGreaterEqual(valid['accuracy'], 0.99)
-        self.assertGreaterEqual(valid['f1'], 0.99)
-        self.assertGreaterEqual(test['hits@1'], 0.95)
         self.assertLessEqual(test['ppl'], 1.01)
         self.assertGreaterEqual(test['accuracy'], 0.99)
         self.assertGreaterEqual(test['f1'], 0.99)
@@ -513,6 +526,7 @@ class TestTransformerGenerator(unittest.TestCase):
                 numthreads=1,
                 no_cuda=True,
                 embedding_size=16,
+                skip_generation=True,
                 hiddensize=16,
             )
         )
@@ -538,15 +552,14 @@ class TestTransformerGenerator(unittest.TestCase):
                 beam_size=1,
                 variant='xlm',
                 activation='gelu',
+                skip_generation=True,
                 n_segments=8,  # doesn't do anything but still good to test
                 adam_eps=1e-6,  # just to test another flag simultaneously
             )
         )
 
         self.assertLessEqual(valid['ppl'], 1.30)
-        self.assertGreaterEqual(valid['bleu-4'], 0.90)
         self.assertLessEqual(test['ppl'], 1.30)
-        self.assertGreaterEqual(test['bleu-4'], 0.90)
 
     @testing_utils.retry(ntries=3)
     def test_prelayernorm(self):
@@ -569,13 +582,12 @@ class TestTransformerGenerator(unittest.TestCase):
                 beam_size=1,
                 variant='prelayernorm',
                 activation='gelu',
+                skip_generation=True,
             )
         )
 
         self.assertLessEqual(valid['ppl'], 1.30)
-        self.assertGreaterEqual(valid['bleu-4'], 0.90)
         self.assertLessEqual(test['ppl'], 1.30)
-        self.assertGreaterEqual(test['bleu-4'], 0.90)
 
     def test_compute_tokenized_bleu(self):
         """
@@ -668,6 +680,33 @@ class TestTransformerGenerator(unittest.TestCase):
                 temperature=0.99,
             )
         )
+
+
+class TestClassifier(unittest.TestCase):
+    """
+    Test transformer/classifier.
+    """
+
+    @testing_utils.retry()
+    def test_simple(self):
+        valid, test = testing_utils.train_model(
+            dict(
+                task='integration_tests:classifier',
+                model='transformer/classifier',
+                classes=['one', 'zero'],
+                optimizer='adamax',
+                truncate=8,
+                learningrate=7e-3,
+                batchsize=32,
+                num_epochs=5,
+                n_layers=1,
+                n_heads=1,
+                ffn_size=32,
+                embedding_size=32,
+            )
+        )
+        assert valid['accuracy'] > 0.97
+        assert test['accuracy'] > 0.97
 
 
 class TestLearningRateScheduler(unittest.TestCase):

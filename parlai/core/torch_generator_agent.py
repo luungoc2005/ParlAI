@@ -32,7 +32,12 @@ from parlai.core.torch_agent import TorchAgent, Batch, Output
 from parlai.utils.misc import warn_once
 from parlai.core.metrics import SumMetric, AverageMetric, BleuMetric, FairseqBleuMetric
 from parlai.utils.fp16 import FP16SafeCrossEntropy
-from parlai.utils.torch import neginf
+from parlai.utils.torch import (
+    neginf,
+    total_parameters,
+    trainable_parameters,
+    PipelineHelper,
+)
 
 try:
     from nltk.translate import bleu_score as nltkbleu
@@ -326,7 +331,7 @@ class TorchGeneratorAgent(TorchAgent, ABC):
         )
         agent.add_argument(
             '--inference',
-            choices={'beam', 'greedy', 'topk', 'nucleus'},
+            choices={'beam', 'greedy', 'topk', 'nucleus', 'delayedbeam'},
             default='greedy',
             help='Generation algorithm',
         )
@@ -335,6 +340,9 @@ class TorchGeneratorAgent(TorchAgent, ABC):
         )
         agent.add_argument(
             '--topp', type=float, default=0.9, help='p used in nucleus sampling'
+        )
+        agent.add_argument(
+            '--beam-delay', type=int, default=30, help='used in delayedbeam search'
         )
         agent.add_argument(
             '--temperature',
@@ -382,12 +390,16 @@ class TorchGeneratorAgent(TorchAgent, ABC):
                     'build_model() and build_criterion() need to return the model or criterion'
                 )
             if self.use_cuda:
-                self.model.cuda()
+                if self.model_parallel:
+                    self.model = PipelineHelper().make_parallel(self.model)
+                else:
+                    self.model.cuda()
                 self.criterion.cuda()
 
             sync_parameters(self.model)
-            print("Total parameters: {}".format(self._total_parameters()))
-            print("Trainable parameters:  {}".format(self._trainable_parameters()))
+            train_params = trainable_parameters(self.model)
+            total_params = total_parameters(self.model)
+            print(f"Total parameters: {total_params:,d} ({train_params:,d} trainable)")
 
             if self.fp16:
                 self.model = self.model.half()
@@ -419,8 +431,9 @@ class TorchGeneratorAgent(TorchAgent, ABC):
             self.build_lr_scheduler(states, hard_reset=is_finetune)
 
         if shared is None and is_distributed():
+            device_ids = None if self.model_parallel else [self.opt['gpu']]
             self.model = torch.nn.parallel.DistributedDataParallel(
-                self.model, device_ids=[self.opt['gpu']], broadcast_buffers=False
+                self.model, device_ids=device_ids, broadcast_buffers=False
             )
 
         self.reset()
@@ -794,6 +807,20 @@ class TorchGeneratorAgent(TorchAgent, ABC):
                 eos_token=self.END_IDX,
                 device=device,
             )
+        elif method == 'delayedbeam':
+            return DelayedBeamSearch(
+                self.opt['topk'],
+                self.opt['beam_delay'],
+                beam_size,
+                min_length=self.beam_min_length,
+                block_ngram=self.beam_block_ngram,
+                context_block_ngram=self.beam_context_block_ngram,
+                length_penalty=self.opt.get('beam_length_penalty', 0.65),
+                padding_token=self.NULL_IDX,
+                bos_token=self.START_IDX,
+                eos_token=self.END_IDX,
+                device=device,
+            )
         elif method == 'topk':
             return TopKSampling(
                 self.opt['topk'],
@@ -1045,7 +1072,7 @@ class TreeSearch(object):
         return self.bookkeep[-1]
 
     @abstractmethod
-    def select_paths(self, logprobs, prior_scores):
+    def select_paths(self, logprobs, prior_scores, current_length):
         """
         Select the next vocabulary item in these beams.
 
@@ -1055,7 +1082,8 @@ class TreeSearch(object):
         :param prior_scores:
             a (beamsize) tensor of weights with the cumulative running
             log-probability of each beam. If the first turn, it will be a (1) tensor.
-
+        :param current_length:
+            the current length in tokens
         :return:
             a (hypothesis_ids, token_id, scores) tuple, where:
 
@@ -1126,7 +1154,9 @@ class TreeSearch(object):
                 self.context_block_ngram, logprobs, self.context
             )
 
-        hyp_ids, tok_ids, self.scores = self.select_paths(logprobs, self.scores)
+        hyp_ids, tok_ids, self.scores = self.select_paths(
+            logprobs, self.scores, current_length
+        )
         # use clone() here to ensure that self.all_scores will not be changed
         # later due to any penalties to self.scores
         self.all_scores.append(self.scores.clone())
@@ -1283,7 +1313,7 @@ class GreedySearch(TreeSearch):
         if self.beam_size != 1:
             raise ValueError('Greedy search can only be run with beam size 1.')
 
-    def select_paths(self, logprobs, prior_scores):
+    def select_paths(self, logprobs, prior_scores, current_length):
         tok_scores, tok_ids = logprobs.max(1)
         best_scores = tok_scores + prior_scores
         hyp_ids = torch.arange(logprobs.size(0)).to(logprobs.device)
@@ -1295,7 +1325,7 @@ class BeamSearch(TreeSearch):
     Beam search.
     """
 
-    def select_paths(self, logprobs, prior_scores):
+    def select_paths(self, logprobs, prior_scores, current_length):
         """
         Select the next vocabulary item in these beams.
         """
@@ -1317,6 +1347,31 @@ class BeamSearch(TreeSearch):
         return (hyp_ids, tok_ids, best_scores)
 
 
+class DelayedBeamSearch(TreeSearch):
+    """
+    DelayedBeam: Top-K sampling followed by beam search (Massarelli et al., 2019).
+
+    Samples from a truncated distribution where only the most probable K words
+    are considered at each time for the first N tokens, then switches to beam
+    after N steps.
+
+    See https://arxiv.org/abs/1911.03587 for details.
+    """
+
+    def __init__(self, k, delay, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.k = k
+        self.delay = delay
+
+    def select_paths(self, logprobs, prior_scores, current_length):
+        if current_length < self.delay:
+            return TopKSampling.select_paths(
+                self, logprobs, prior_scores, current_length
+            )
+        else:
+            return BeamSearch.select_paths(self, logprobs, prior_scores, current_length)
+
+
 class TopKSampling(TreeSearch):
     """
     Top-K sampling (Fan et al., 2018).
@@ -1333,7 +1388,7 @@ class TopKSampling(TreeSearch):
         super().__init__(*args, **kwargs)
         self.k = k
 
-    def select_paths(self, logprobs, prior_scores):
+    def select_paths(self, logprobs, prior_scores, current_length):
         values, indices = logprobs.topk(self.k, dim=-1)
         probs = torch.softmax(values, dim=-1)
         choices = torch.multinomial(probs, 1)[:, 0]
@@ -1360,7 +1415,7 @@ class NucleusSampling(TreeSearch):
         super().__init__(*args, **kwargs)
         self.p = p
 
-    def select_paths(self, logprobs, prior_scores):
+    def select_paths(self, logprobs, prior_scores, current_length):
         # Unlike the other treesearch methods, we have to switch to linspace
         # for the probabilities in order to compute the CDF.
         probs = torch.softmax(logprobs, dim=-1)

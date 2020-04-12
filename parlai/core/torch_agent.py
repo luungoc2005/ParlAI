@@ -1659,7 +1659,7 @@ class TorchAgent(ABC, Agent):
 
         # otherwise, we use the last output the model generated
         if self_message is not None:
-            last_reply = self_message['text']
+            last_reply = self_message.get('text', '')
             self.history.add_reply(last_reply)
             return
 

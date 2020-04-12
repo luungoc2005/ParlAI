@@ -1159,22 +1159,26 @@ class DynamicBatchWorld(World):
         # first make sure that all the worlds are processed in the queue
         indices = []
         for i in range(self._BUFFER_SIZE):
-            if self._scores[i] is not None:
-                indices.append(i)
-                continue
-            if self.worlds[i].epoch_done():
-                continue
+            try:
+                if self._scores[i] is not None:
+                    indices.append(i)
+                    continue
+                if self.worlds[i].epoch_done():
+                    continue
 
-            if hasattr(self.world, 'parley_init'):
-                self.worlds[i].parley_init()
+                if hasattr(self.world, 'parley_init'):
+                    self.worlds[i].parley_init()
 
-            act = self.worlds[i].get_task_agent().act()
-            obs = self.worlds[i].get_model_agent().observe(act)
-            self._obs[i] = obs
+                act = self.worlds[i].get_task_agent().act()
+                obs = self.worlds[i].get_model_agent().observe(act)
 
-            self._scores[i] = self._score(obs)
-            if self._scores[i] is not None:
-                indices.append(i)
+                self._obs[i] = obs
+
+                self._scores[i] = self._score(obs)
+                if self._scores[i] is not None:
+                    indices.append(i)
+            except:
+                pass
 
         # quick invariant checks
         assert len(indices) != 0, "DynamicBatchWorld ran out of data!"

@@ -42,6 +42,7 @@ class CCPEAllTeacher(FixedDialogTeacher):
             json_data = json.loads(f'[{new_data}]')
 
         flattenedData = []
+        json_data = json_data[0] # this seems to fix it
 
         for ep in range(len(json_data)):
             currEp = []

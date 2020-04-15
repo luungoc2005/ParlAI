@@ -80,8 +80,8 @@ class ParlaiformatTeacher(ParlAIDialogTeacher):
         datafile = opt['fromfile_datapath']
         if self.opt['fromfile_datatype_extension']:
             datafile += "_" + self.opt['datatype'].split(':')[0] + '.txt'
-        if shared is None:
-            self._setup_data(datafile)
+        # if shared is None:
+        #     self._setup_data(datafile)
         # Truncate datafile to just the immediate enclosing folder name and file name
         dirname, basename = os.path.split(datafile)
         self.id = os.path.join(os.path.split(dirname)[1], basename)

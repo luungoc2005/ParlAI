@@ -55,6 +55,7 @@ import torch
 import json
 import argparse
 
+from tqdm import tqdm
 
 class DataLoader(Thread):
     """
@@ -511,6 +512,7 @@ class DialogTeacher(FixedDialogTeacher):
 
         # first initialize any shared objects
         data_class = StreamDialogData if self.stream else DialogData
+
         kwargs = (
             # never cycle if "ordered" is in the datatype. this is used by
             # build_dict to enumerate through the data exactly once while still
@@ -973,7 +975,7 @@ class StreamDialogData(DialogData):
                 num_exs += len(episode)
             with open(length_file, 'w') as f:
                 f.write("{}\n{}".format(num_eps, num_exs))
-        else:
+        else: 
             with open(length_file, 'r') as f:
                 num_eps, num_exs = f.readlines()
         return int(num_eps), int(num_exs)
@@ -1276,11 +1278,12 @@ class FbDialogTeacher(DialogTeacher):
                 yield [x, None, reward], start
 
 
-class ParlAIDialogTeacher(FixedDialogTeacher):
+SILENCE_TOKEN = '__SILENCE__'
+class ParlAIDialogTeacher(DialogTeacher):
     """
     This module provides access to data in the ParlAI Text Dialog format.
 
-    Subclasses ``FixedDialogTeacher`` for functionality and provides an
+    Subclasses ``DialogTeacher`` for functionality and provides an
     implementation of ``setup_data()`` which iterates over datasets in the
     "ParlAI text" format. If your data is in the format below, use this class to
     handle file parsing for you.
@@ -1335,18 +1338,14 @@ class ParlAIDialogTeacher(FixedDialogTeacher):
     """
 
     def __init__(self, opt, shared=None):
+        opt = copy.deepcopy(opt)
+        # print(opt)
+        if opt.get('fromfile_datapath') is not None:
+            opt['datafile'] = opt.get('fromfile_datapath')
+        
         super().__init__(opt, shared)
-        if not shared:
-            self.episodes = []
-            self.num_exs = 0
-            if opt.get('parlaidialogteacher_datafile') is not None:
-                self._setup_data(opt.get('parlaidialogteacher_datafile'))
-        else:
-            self.episodes = shared['episodes']
-            self.num_exs = sum(len(e) for e in self.episodes)
-
+        
         self.id = opt['task']
-
         self.reset()
 
     def share(self):
@@ -1354,35 +1353,53 @@ class ParlAIDialogTeacher(FixedDialogTeacher):
         Share the episodes.
         """
         shared = super().share()
-        shared['episodes'] = self.episodes
         return shared
 
-    def num_examples(self):
-        """
-        Return the number of examples from the data.
-        """
-        return self.num_exs
+    def setup_data(self, path):
+        def rebuild(entries):
+            if len(entries) == 0:
+                return []
+            # flip the first example
+            flipped = [(SILENCE_TOKEN, [entries[0][0]], 0)]
+            # flip the rest
+            flipped += [
+                (entries[i][1][0], [entries[i + 1][0]], 0)
+                for i in range(len(entries) - 1)
+            ]
+            return flipped
 
-    def num_episodes(self):
-        """
-        Return the number of episodes from the data.
-        """
-        return len(self.episodes)
+        # this shows conversations in both directions
+        # we skip examples for which no label is present
+        alternate = []
+        for entry, new in tqdm(self._setup_data(path)):
+            if new:
+                for i, e in enumerate(rebuild(alternate)):
+                    if e[1]:
+                        yield e, i == 0
+                alternate.clear()
+            else:
+                alternate.append(entry)
+            if entry[1]:
+                yield entry, new
 
-    def get(self, episode_idx, entry_idx=None):
-        """
-        Get a specific example from the dataset.
-        """
-        return self.episodes[episode_idx][entry_idx]
+        # flip the last episode
+        if alternate:
+            for i, e in enumerate(rebuild(alternate)):
+                if e[1]:
+                    yield e, i == 0
+            alternate.clear()
 
     def _setup_data(self, path):
         print("[loading parlAI text data:" + path + "]")
-        self.episodes = []
-        self.num_exs = 0
+        new_episode = True
         eps = []
         with open(path, newline='\n') as read:
-            for line_no, line in enumerate(read, 1):
-                msg = str_to_msg(line.rstrip('\n'))
+            for line in read:
+                line = line.rstrip('\n')
+                if len(line) == 0:
+                    # empty response
+                    continue
+                msg = str_to_msg(line)
                 if msg and 'eval_labels' in msg:
                     raise ValueError(
                         f"It looks like you've written eval_labels as a key in your "
@@ -1391,15 +1408,23 @@ class ParlAIDialogTeacher(FixedDialogTeacher):
                         f"in {path}. The line is:\n\t{line}"
                     )
                 if msg:
-                    self.num_exs += 1
-                    eps.append(msg)
+                    # eps.append(msg)
+                    eps = [
+                        msg.get('text', ''),
+                        msg.get('labels', ''),
+                    ]
+                    if new_episode:
+                        yield eps, True
+                        new_episode = False
+                    else:
+                        yield eps, False
+                    
                     if msg.get('episode_done', False):
-                        self.episodes.append(eps)
-                        eps = []
-        if len(eps) > 0:
-            # add last episode
-            eps[-1].force_set('episode_done', True)
-            self.episodes.append(eps)
+                        new_episode = True
+        # if len(eps) > 0:
+        #     # add last episode
+        #     eps[-1].force_set('episode_done', True)
+        #     self.episodes.append(eps)
 
 
 class AbstractImageTeacher(FixedDialogTeacher):

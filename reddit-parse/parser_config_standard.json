@@ -1,0 +1,23 @@
+{
+    "subreddit_whitelist": [], 
+    "subreddit_blacklist": [], 
+    "substring_blacklist": [
+        "[", 
+        "http://", 
+        "https://", 
+        " r/", 
+        " u/", 
+        "/r/", 
+        "/u/", 
+        "reddit", 
+        "Reddit", 
+        "upvot", 
+        "Upvot", 
+        "downvot", 
+        "Downvot", 
+        "username", 
+        "Username", 
+        "OOC:", 
+        "&gt;"
+    ]
+}

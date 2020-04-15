@@ -733,11 +733,26 @@ class TorchGeneratorAgent(TorchAgent, ABC):
 
         if batch.label_vec is not None:
             # calculate loss on targets with teacher forcing
-            loss, model_output = self.compute_loss(batch, return_output=True)
-            if self.output_token_losses:
-                token_losses = self._construct_token_losses(
-                    batch.label_vec, model_output
-                )
+            try:
+                loss, model_output = self.compute_loss(batch, return_output=True)
+                if self.output_token_losses:
+                    token_losses = self._construct_token_losses(
+                        batch.label_vec, model_output
+                    )
+            except RuntimeError as e:
+                # catch out of memory exceptions during fwd/bck (skip batch)
+                if 'out of memory' in str(e):
+                    print(
+                        '| WARNING: ran out of memory, skipping batch. '
+                        'if this happens frequently, decrease batchsize or '
+                        'truncate the inputs to the model.'
+                    )
+                    self.global_metrics.add('skipped_batches', SumMetric(1))
+                    # gradients are synced on backward, now this model is going to be
+                    # out of sync! catch up with the other workers
+                    self._init_cuda_buffer(8, 8, True)
+                else:
+                    raise e
 
         preds = None
         if self.skip_generation:

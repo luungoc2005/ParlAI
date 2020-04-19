@@ -29,7 +29,7 @@ def main():
 					   help='max size of each output file (give or take one conversation)')
 	parser.add_argument('--print_every', type=int, default=1000,
 					   help='print an update to the screen this often')
-	parser.add_argument('--min_conversation_length', type=int, default=2,
+	parser.add_argument('--min_conversation_length', type=int, default=3,
 					   help='conversations must have at least this many comments for inclusion')
 	parser.add_argument('--print_subreddit', type=str2bool, nargs='?',
                        const=False, default=False,

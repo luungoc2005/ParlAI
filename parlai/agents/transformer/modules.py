@@ -24,6 +24,7 @@ import torch
 import torch.cuda
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from parlai.core.torch_generator_agent import TorchGeneratorModel
 from parlai.utils.misc import warn_once
@@ -99,7 +100,8 @@ def _build_encoder(
         activation=opt['activation'],
         variant=opt['variant'],
         output_scaling=opt['output_scaling'],
-        tie_layers=opt['tie_layers']
+        tie_layers=opt['tie_layers'],
+        model_checkpointing=opt['enable_checkpointing'],
     )
 
 
@@ -128,7 +130,8 @@ def _build_decoder(
         activation=opt['activation'],
         variant=opt['variant'],
         n_segments=n_segments,
-        tie_layers=opt['tie_layers']
+        tie_layers=opt['tie_layers'],
+        model_checkpointing=opt['enable_checkpointing'],
     )
 
 
@@ -426,6 +429,7 @@ class TransformerEncoder(nn.Module):
         n_segments=0,
         output_scaling=1.0,
         tie_layers=False,
+        model_checkpointing=False,
     ):
         super(TransformerEncoder, self).__init__()
 
@@ -442,10 +446,13 @@ class TransformerEncoder(nn.Module):
         self.dropout = nn.Dropout(p=self.dropout_frac)
         self.variant = variant
         self.n_segments = n_segments
+
         self.tie_layers = tie_layers
+        self.model_checkpointing = model_checkpointing
 
         self.n_positions = n_positions
         self.out_dim = embedding_size
+
         assert (
             embedding_size % n_heads == 0
         ), 'Transformer embedding size must be a multiple of n_heads'
@@ -571,9 +578,9 @@ class TransformerEncoder(nn.Module):
         else:
             for i in range(self.n_layers):
                 if self.tie_layers:
-                    tensor = self.layer(tensor, mask)
+                    tensor = self.layer(tensor, mask, self.model_checkpointing)
                 else:
-                    tensor = self.layers[i](tensor, mask)
+                    tensor = self.layers[i](tensor, mask, self.model_checkpointing)
 
         if self.variant == 'prelayernorm':
             tensor = _normalize(tensor, self.norm_embeddings)
@@ -649,7 +656,7 @@ class TransformerEncoderLayer(nn.Module):
 
         self.dropout = nn.Dropout(p=dropout)
 
-    def forward(self, tensor, mask):
+    def forward(self, tensor, mask, model_checkpointing=False):
         """
         Forward pass.
         """
@@ -666,7 +673,12 @@ class TransformerEncoderLayer(nn.Module):
         residual = tensor
         if self.variant == 'prelayernorm':
             tensor = _normalize(tensor, self.norm2)
-        src2 = self.dropout(self.ffn(tensor))
+
+        if model_checkpointing:
+            src2 = self.dropout(checkpoint(self.ffn, tensor))
+        else:
+            src2 = self.dropout(self.ffn(tensor))
+
         if self.variant == 'rezero':
             src2 = src2 * self.resweight
         tensor = residual + src2
@@ -720,6 +732,7 @@ class TransformerDecoder(nn.Module):
         variant='aiayn',
         activation='relu',
         tie_layers=False,
+        model_checkpointing=False,
     ):
         super().__init__()
         self.embedding_size = embedding_size
@@ -736,6 +749,8 @@ class TransformerDecoder(nn.Module):
         self.n_positions = n_positions
         self.out_dim = embedding_size
         self.tie_layers = tie_layers
+
+        self.model_checkpointing = model_checkpointing
 
         assert (
             embedding_size % n_heads == 0
@@ -847,6 +862,7 @@ class TransformerDecoder(nn.Module):
                         encoder_output=encoder_output,
                         encoder_mask=encoder_mask,
                         incr_state=incr_state.get(idx),
+                        model_checkpointing=self.model_checkpointing,
                     )
                 else:
                     tensor, new_incr_state[idx] = self.layers[idx](
@@ -854,6 +870,7 @@ class TransformerDecoder(nn.Module):
                         encoder_output=encoder_output,
                         encoder_mask=encoder_mask,
                         incr_state=incr_state.get(idx),
+                        model_checkpointing=self.model_checkpointing,
                     )
 
         if self.variant == 'prelayernorm':
@@ -945,7 +962,7 @@ class TransformerDecoderLayer(nn.Module):
             self.norm2 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
             self.norm3 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
 
-    def forward(self, x, encoder_output, encoder_mask, incr_state=None):
+    def forward(self, x, encoder_output, encoder_mask, incr_state=None, model_checkpointing=False):
         """
         Forward pass.
 
@@ -999,7 +1016,12 @@ class TransformerDecoderLayer(nn.Module):
         residual = x
         if self.variant == 'prelayernorm':
             x = _normalize(x, self.norm3)
-        x = self.ffn(x)
+
+        if model_checkpointing:
+            x = checkpoint(self.ffn, x)
+        else:
+            x = self.ffn(x)
+
         x = self.dropout(x)  # --dropout
         if self.variant == 'rezero':
             x = x * self.resweight
@@ -1083,7 +1105,11 @@ class TransformerGeneratorModel(TorchGeneratorModel):
             n_segments=n_segments,
         )
         self.decoder = _build_decoder(
-            opt, dictionary, self.embeddings, self.pad_idx, n_positions=n_positions
+            opt, 
+            dictionary, 
+            self.embeddings, 
+            self.pad_idx, 
+            n_positions=n_positions,
         )
 
     def reorder_encoder_states(self, encoder_states, indices):
@@ -1372,7 +1398,8 @@ class TransformerFFN(nn.Module):
         if activation == 'relu':
             self.nonlinear = F.relu
         elif activation == 'gelu':
-            self.nonlinear = gelu
+            # self.nonlinear = gelu
+            self.nonlinear = F.gelu
         else:
             raise ValueError(
                 "Don't know how to handle --activation {}".format(activation)

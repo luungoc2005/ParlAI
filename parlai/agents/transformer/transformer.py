@@ -20,7 +20,6 @@ from .modules import (
 
 import torch
 
-
 def add_common_cmdline_args(argparser):
     """
     Add common command line args.
@@ -124,6 +123,20 @@ def add_common_cmdline_args(argparser):
         action='store_true',
         default=False,
         help='Enable shared encoder/decoder layers',
+    )
+    argparser.add_argument(
+        '-tie_embeddings',
+        '--tie_embeddings',
+        action='store_true',
+        default=False,
+        help='Enable shared embedding/decoder layers',
+    )
+    argparser.add_argument(
+        '-enable-checkpointing',
+        '--enable-checkpointing',
+        action='store_true',
+        default=False,
+        help='Enable model checkpointing',
     )
     argparser.add_argument(
         '--model-parallel',

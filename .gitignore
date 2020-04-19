@@ -141,4 +141,5 @@ heroku-cli-*
 .mypy_cache
 
 checkpoints/
-test.sh
+reddit-parse/output/
+reddit-parse/output/RC_report.txt

@@ -674,7 +674,7 @@ class TransformerEncoderLayer(nn.Module):
         if self.variant == 'prelayernorm':
             tensor = _normalize(tensor, self.norm2)
 
-        if model_checkpointing:
+        if model_checkpointing and self.training:
             src2 = self.dropout(checkpoint(self.ffn, tensor))
         else:
             src2 = self.dropout(self.ffn(tensor))
@@ -1017,7 +1017,7 @@ class TransformerDecoderLayer(nn.Module):
         if self.variant == 'prelayernorm':
             x = _normalize(x, self.norm3)
 
-        if model_checkpointing:
+        if model_checkpointing and self.training:
             x = checkpoint(self.ffn, x)
         else:
             x = self.ffn(x)
@@ -1112,6 +1112,11 @@ class TransformerGeneratorModel(TorchGeneratorModel):
             n_positions=n_positions,
         )
 
+        self.norm_output = None
+        if opt.get('output_normalize'):
+            self.norm_output = LayerNorm(len(dictionary), eps=LAYER_NORM_EPS)
+            
+
     def reorder_encoder_states(self, encoder_states, indices):
         """
         Reorder the encoder states.
@@ -1153,6 +1158,10 @@ class TransformerGeneratorModel(TorchGeneratorModel):
         """
         # project back to vocabulary
         output = F.linear(tensor, self.embeddings.weight)
+
+        if self.norm_output is not None:
+            output = _normalize(output, self.norm_output)
+
         # compatibility with fairseq: fairseq sometimes reuses BOS tokens and
         # we need to force their probability of generation to be 0.
         output[:, :, self.start_idx] = neginf(output.dtype)

@@ -400,6 +400,7 @@ class TorchGeneratorAgent(TorchAgent, ABC):
             train_params = trainable_parameters(self.model)
             total_params = total_parameters(self.model)
             print(f"Total parameters: {total_params:,d} ({train_params:,d} trainable)")
+            print(self.model)
 
             if self.fp16:
                 self.model = self.model.half()

@@ -118,18 +118,18 @@ def add_common_cmdline_args(argparser):
         help='This will overide the n-layers for asymmetrical transformers',
     )
     argparser.add_argument(
-        '-tie_layers',
-        '--tie_layers',
+        '-tie-layers',
+        '--tie-layers',
         action='store_true',
         default=False,
         help='Enable shared encoder/decoder layers',
     )
     argparser.add_argument(
-        '-tie_embeddings',
-        '--tie_embeddings',
+        '-output-normalize',
+        '--output-normalize',
         action='store_true',
         default=False,
-        help='Enable shared embedding/decoder layers',
+        help='Enable normalize after output matrix multiply',
     )
     argparser.add_argument(
         '-enable-checkpointing',

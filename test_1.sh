@@ -4,7 +4,7 @@ python -m parlai.scripts.train_model -t convai2,convai2_wild_evaluation,mturkwik
 --dict-tokenizer bpe --dict-lower True --dict-septoken __sep__ --person-tokens True --add-p1-after-newln True --history-add-global-end-token end \
 --n_positions=512 --truncate=512 \
 --inference beam --beam-size 7 \
---embedding-size 512 --n_heads 8 --n_layers 6 --ffn_size 2048 --activation gelu --tie_layers \
+--embedding-size 512 --n_heads 8 --n_layers 6 --ffn_size 2048 --activation gelu --tie-layers \
 --dropout 0.1 --attention-dropout 0.1 \
 --num-epochs 2 -veps 0.01 -vme 512 -vmt ppl -vmm min -sval True \
 -bs 8 --optimizer mem_eff_adam -lr 5e-5 --update_freq 16 \

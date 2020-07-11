@@ -1,0 +1,14 @@
+python -m parlai.scripts.train_model \
+-t fromfile:parlaiformat --fromfile_datapath ./data/reddit/train_v2.txt -dt train:stream \
+--init_model ./checkpoints/transformer-reddit-3.checkpoint \
+-m transformer/generator_septoken \
+-mf ./checkpoints/transformer-reddit-4 \
+--dict-tokenizer bpe --dict-lower True --dict-septoken __sep__ --person-tokens True --add-p1-after-newln True --history-add-global-end-token end \
+--n_positions=512 --truncate=512 \
+--inference greedy --beam-size 1 --skip-generation True \
+--embedding-size 512 --learn-positional-embeddings True --n_heads 16 --n_layers 8 --ffn_size 2048 --activation gelu --gradient-clip 0.1 --enable-checkpointing --variant xlm \
+--dropout 0 --attention-dropout 0 \
+--num-epochs 2 -veps 0.01 -vme 512 -vmt ppl -vmm min -sval True \
+-bs 16 --optimizer mem_eff_adam -lr 1.5e-5 --update_freq 8 \
+--warmup_updates 5000 --lr-scheduler-patience 10 --lr-scheduler-decay 0.2 -vp 500 \
+-tblog True --fp16 True --fp16-impl mem_efficient --dict-extratokens 7 --evaltask convai2

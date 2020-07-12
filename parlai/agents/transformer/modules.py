@@ -67,74 +67,6 @@ def _create_embeddings(dictionary, embedding_size, padding_idx):
     return e
 
 
-def _build_encoder(
-    opt,
-    dictionary,
-    embedding=None,
-    padding_idx=None,
-    reduction_type='mean',
-    n_positions=1024,
-    n_segments=0,
-):
-    n_layers = (
-        opt['n_encoder_layers']
-        if opt.get('n_encoder_layers', -1) > 0
-        else opt['n_layers']
-    )
-    return TransformerEncoder(
-        n_heads=opt['n_heads'],
-        n_layers=n_layers,
-        embedding_size=opt['embedding_size'],
-        ffn_size=opt['ffn_size'],
-        vocabulary_size=len(dictionary),
-        embedding=embedding,
-        dropout=opt['dropout'],
-        attention_dropout=opt['attention_dropout'],
-        relu_dropout=opt['relu_dropout'],
-        padding_idx=padding_idx,
-        learn_positional_embeddings=opt['learn_positional_embeddings'],
-        embeddings_scale=opt['embeddings_scale'],
-        reduction_type=reduction_type,
-        n_positions=n_positions,
-        n_segments=n_segments,
-        activation=opt['activation'],
-        variant=opt['variant'],
-        output_scaling=opt['output_scaling'],
-        tie_layers=opt['tie_layers'],
-        model_checkpointing=opt['enable_checkpointing'],
-    )
-
-
-def _build_decoder(
-    opt, dictionary, embedding=None, padding_idx=None, n_positions=1024, n_segments=0
-):
-    n_layers = (
-        opt['n_decoder_layers']
-        if opt.get('n_decoder_layers', -1) > 0
-        else opt['n_layers']
-    )
-    return TransformerDecoder(
-        n_heads=opt['n_heads'],
-        n_layers=n_layers,
-        embedding_size=opt['embedding_size'],
-        ffn_size=opt['ffn_size'],
-        vocabulary_size=len(dictionary),
-        embedding=embedding,
-        dropout=opt['dropout'],
-        attention_dropout=opt['attention_dropout'],
-        relu_dropout=opt['relu_dropout'],
-        padding_idx=padding_idx,
-        learn_positional_embeddings=opt['learn_positional_embeddings'],
-        embeddings_scale=opt['embeddings_scale'],
-        n_positions=n_positions,
-        activation=opt['activation'],
-        variant=opt['variant'],
-        n_segments=n_segments,
-        tie_layers=opt['tie_layers'],
-        model_checkpointing=opt['enable_checkpointing'],
-    )
-
-
 def gelu(tensor):
     """
     Compute gelu function.
@@ -203,6 +135,8 @@ class TransformerMemNetModel(nn.Module):
             activation=opt['activation'],
             variant=opt['variant'],
             output_scaling=opt['output_scaling'],
+            tie_layers=opt['tie_layers'],
+            model_checkpointing=opt['enable_checkpointing'],
         )
 
     def __init__(self, opt, dictionary):
@@ -1278,6 +1212,8 @@ class TransformerGeneratorModel(TorchGeneratorModel):
             activation=opt['activation'],
             variant=opt['variant'],
             n_segments=n_segments,
+            tie_layers=opt['tie_layers'],
+            model_checkpointing=opt['enable_checkpointing'],
         )
 
     def __init__(self, opt, dictionary):

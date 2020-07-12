@@ -7,7 +7,9 @@
 Utility methods for dealing with torch code.
 """
 
+import os
 from typing import Union, Optional, Tuple, Any, List, Sized, TypeVar
+import tempfile
 import itertools
 from collections import namedtuple
 import parlai.utils.logging as logging
@@ -40,6 +42,20 @@ def neginf(dtype: torch.dtype) -> float:
         return -NEAR_INF_FP16
     else:
         return -NEAR_INF
+
+
+def atomic_save(state_dict: Any, path: str) -> None:
+    """
+    Like torch.save, but atomic.
+
+    Useful for preventing trouble coming from being pre-empted or killed while writing
+    to disk. Works by writing to a temporary file, and then renaming the file to the
+    final name.
+    """
+    tf = tempfile.NamedTemporaryFile('wb', delete=False, dir=os.path.dirname(path))
+    torch.save(state_dict, tf)
+    tf.close()
+    os.rename(tf.name, path)
 
 
 def padded_tensor(
@@ -241,7 +257,7 @@ def compute_grad_norm(parameters, norm_type=2.0):
     """
     if isinstance(parameters, torch.Tensor):
         parameters = [parameters]
-    parameters = [p.grad for p in parameters if p is not None]
+    parameters = [p for p in parameters if p is not None and p.grad is not None]
     total_norm = 0
     for p in parameters:
         param_norm = p.grad.data.norm(norm_type)

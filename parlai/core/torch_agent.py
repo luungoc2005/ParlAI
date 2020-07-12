@@ -19,14 +19,13 @@ Contains the following main utilities:
 See below for documentation on each specific tool.
 """
 
-from typing import Dict, Any, Union, List, Tuple
+from typing import Dict, Any, Union, List, Tuple, Optional
 from abc import ABC, abstractmethod
-from copy import deepcopy
 from collections import deque
-import json
 import random
 import os
 import torch
+import parlai.utils.logging as logging
 from torch import optim
 
 from parlai.core.opt import Opt
@@ -52,7 +51,7 @@ from parlai.core.metrics import (
     GlobalFixedMetric,
 )
 from parlai.utils.distributed import is_primary_worker
-from parlai.utils.torch import argsort, compute_grad_norm, padded_tensor
+from parlai.utils.torch import argsort, compute_grad_norm, padded_tensor, atomic_save
 
 
 class Batch(AttrDict):
@@ -101,6 +100,17 @@ class Batch(AttrDict):
     :param observations:
         the original observations in the batched order
     """
+
+    text_vec: Optional[torch.LongTensor]
+    text_lengths: Optional[List[int]]
+    label_vec: Optional[torch.LongTensor]
+    label_lengths: Optional[List[int]]
+    labels: Optional[List[str]]
+    valid_indices: Optional[List[int]]
+    candidates: Optional[List[List[str]]]
+    candidate_vecs: Optional[List[List[torch.LongTensor]]]
+    image: Optional[List[Any]]
+    observations: Optional[List[Message]]
 
     def __init__(
         self,
@@ -210,6 +220,7 @@ class History(object):
         self.history_strings = []
         self.history_raw_strings = []
         self.history_vecs = []
+        self.temp_history = None
 
         # person token args
         self.add_person_tokens = opt.get('person_tokens', False)
@@ -261,9 +272,14 @@ class History(object):
         # update history vecs
         self._update_vecs(text)
 
-    def update_history(self, obs):
+    def update_history(self, obs, temp_history=None):
         """
         Update the history with the given observation.
+
+        param obs:     Observation used to update the history. param temp_history:
+        Optional temporary string. If it is not None,     this string will be appended
+        to the end of the     history. It will not be in the history on the     next
+        dialogue turn. Set to None to stop adding     to the history.
         """
         if self.field in obs and obs[self.field] is not None:
             if self.split_on_newln:
@@ -281,12 +297,18 @@ class History(object):
                 # update history vecs
                 self._update_vecs(text)
 
+        self.temp_history = temp_history
+
     def get_history_str(self):
         """
         Return the string version of the history.
         """
         if len(self.history_strings) > 0:
-            return self.delimiter.join(self.history_strings)
+            history = self.delimiter.join(self.history_strings)
+            if self.temp_history is not None:
+                history += self.temp_history
+            return history
+
         return None
 
     def get_history_vec(self):
@@ -302,6 +324,8 @@ class History(object):
                 history.extend(vec)
                 history.extend(self.delimiter_tok)
             history.extend(self.history_vecs[-1])
+            if self.temp_history is not None:
+                history.extend(self.parse(self.temp_history))
             if self._global_end_token is not None:
                 history.extend([self._global_end_token])
         else:
@@ -311,8 +335,11 @@ class History(object):
                 history += vec
                 history += self.delimiter_tok
             history += self.history_vecs[-1]
+            if self.temp_history is not None:
+                history.extend(self.parse(self.temp_history))
             if self._global_end_token is not None:
                 history += [self._global_end_token]
+
         return history
 
     def get_history_vec_list(self):
@@ -669,7 +696,7 @@ class TorchAgent(ABC, Agent):
         self.use_cuda = not opt['no_cuda'] and torch.cuda.is_available()
         if self.use_cuda:
             if not shared:
-                print('[ Using CUDA ]')
+                logging.info('Using CUDA')
             if not shared and opt['gpu'] != -1:
                 torch.cuda.set_device(opt['gpu'])
 
@@ -937,7 +964,7 @@ class TorchAgent(ABC, Agent):
         # will remain the behavior for the time being.
         if optim_states and saved_optim_type != opt['optimizer']:
             # we changed from adam to adamax, or sgd to adam, or similar
-            print('WARNING: not loading optim state since optim class changed.')
+            logging.warn('Not loading optim state since optim class changed.')
         elif optim_states:
             # check for any fp16/fp32 conversions we need to do
             optimstate_fp16 = 'loss_scaler' in optim_states
@@ -1168,7 +1195,10 @@ class TorchAgent(ABC, Agent):
         :param emb_type:
             pretrained embedding type
         """
-        if self.opt['embedding_type'] == 'random':
+        if (
+            self.opt['embedding_type'] == 'random'
+            or not self._should_initialize_optimizer()
+        ):
             # Random embedding means no copying of pretrained embeddings
             return
 
@@ -1181,9 +1211,9 @@ class TorchAgent(ABC, Agent):
                 cnt += 1
 
         if log:
-            print(
-                'Initialized embeddings for {} tokens ({}%) from {}.'
-                ''.format(cnt, round(cnt * 100 / len(self.dict), 1), name)
+            logging.info(
+                f'Initialized embeddings for {cnt} tokens '
+                f'({cnt / len(self.dict):.1%}) from {name}.'
             )
 
     def share(self):
@@ -1577,6 +1607,15 @@ class TorchAgent(ABC, Agent):
 
         return batch_reply
 
+    def get_temp_history(self, observation) -> Optional[str]:
+        """
+        Return a string to temporarily insert into history.
+
+        Intentionally overrideable so more complex models can insert temporary history
+        strings, i.e. strings that are removed from the history after a single turn.
+        """
+        return None
+
     def observe(self, observation):
         """
         Process incoming message in preparation for producing a response.
@@ -1598,8 +1637,13 @@ class TorchAgent(ABC, Agent):
             self.__expecting_to_reply = True
 
         self.observation = observation
-        # update the history using the observation
-        self.history.update_history(observation)
+        # Update the history using the observation.
+        # We may also consider adding a temporary string to the history
+        # using the `get_temp_history()` function: this string will
+        # persist until it is updated.
+        self.history.update_history(
+            observation, temp_history=self.get_temp_history(observation)
+        )
         return self.vectorize(
             observation,
             self.history,
@@ -1726,16 +1770,11 @@ class TorchAgent(ABC, Agent):
             states['optimizer_type'] = self.opt['optimizer']
 
         # lr scheduler
-        if torch.__version__.startswith('0.'):
-            warn_once(
-                "Must upgrade to Pytorch 1.0 to save the state of your " "LR scheduler."
-            )
-        else:
-            states['number_training_updates'] = self._number_training_updates
-            if getattr(self, 'scheduler', None):
-                states['lr_scheduler'] = self.scheduler.get_state_dict()
-                states['lr_scheduler_type'] = self.opt['lr_scheduler']
-                states['warmup_scheduler'] = self.scheduler.get_warmup_state_dict()
+        states['number_training_updates'] = self._number_training_updates
+        if getattr(self, 'scheduler', None):
+            states['lr_scheduler'] = self.scheduler.get_state_dict()
+            states['lr_scheduler_type'] = self.opt['lr_scheduler']
+            states['warmup_scheduler'] = self.scheduler.get_warmup_state_dict()
 
         return states
 
@@ -1754,24 +1793,13 @@ class TorchAgent(ABC, Agent):
                 model_dict_path
             ):  # force save dictionary
                 # TODO: Look into possibly overriding opt('dict_file') with new path
+                logging.debug(f'Saving dictionary to {model_dict_path}')
                 self.dict.save(model_dict_path, sort=False)
             states = self.state_dict()
             if states:  # anything found to save?
-                with open(path, 'wb') as write:
-                    torch.save(states, write)
-
+                atomic_save(states, path)
                 # save opt file
-                with open(path + '.opt', 'w', encoding='utf-8') as handle:
-                    if hasattr(self, 'model_version'):
-                        self.opt['model_version'] = self.model_version()
-                    saved_opts = deepcopy(self.opt)
-                    if 'interactive_mode' in saved_opts:
-                        # We do not save the state of interactive mode, it is only decided
-                        # by scripts or command line.
-                        del saved_opts['interactive_mode']
-                    json.dump(saved_opts, handle, indent=4)
-                    # for convenience of working with jq, make sure there's a newline
-                    handle.write('\n')
+                self.opt.save(path + '.opt')
 
     def load_state_dict(self, state_dict):
         """
@@ -1944,7 +1972,7 @@ class TorchAgent(ABC, Agent):
         """
         if shared is None and mode:
             # Only print in the non-shared version.
-            print("[" + self.id + ': full interactive mode on.' + ']')
+            logging.info(f'{self.id}: full interactive mode on.')
 
     def backward(self, loss):
         """

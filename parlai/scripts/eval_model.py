@@ -20,10 +20,12 @@ Examples
 from parlai.core.params import ParlaiParser, print_announcements
 from parlai.core.agents import create_agent
 from parlai.core.logs import TensorboardLogger
-from parlai.core.metrics import aggregate_named_reports
+from parlai.core.metrics import aggregate_named_reports, Metric
 from parlai.core.worlds import create_task
 from parlai.utils.misc import TimeLogger, nice_report
 from parlai.utils.world_logging import WorldLogger
+from parlai.scripts.script import ParlaiScript
+import parlai.utils.logging as logging
 
 import json
 import random
@@ -53,11 +55,11 @@ def setup_args(parser=None):
         '--save-format',
         type=str,
         default='conversations',
-        choices=['jsonl', 'conversations', 'parlai'],
+        choices=['conversations', 'parlai'],
     )
     parser.add_argument('-ne', '--num-examples', type=int, default=-1)
     parser.add_argument('-d', '--display-examples', type='bool', default=False)
-    parser.add_argument('-ltim', '--log-every-n-secs', type=float, default=2)
+    parser.add_argument('-ltim', '--log-every-n-secs', type=float, default=10)
     parser.add_argument(
         '-mcs',
         '--metrics',
@@ -78,7 +80,7 @@ def setup_args(parser=None):
     )
     WorldLogger.add_cmdline_args(parser)
     TensorboardLogger.add_cmdline_args(parser)
-    parser.set_defaults(datatype='valid')
+    parser.set_params(datatype='valid')
     return parser
 
 
@@ -89,18 +91,21 @@ def _save_eval_stats(opt, report):
     if report_fname.startswith('.'):
         report_fname = opt['model_file'] + report_fname
 
+    json_serializable_report = report
+    for k, v in report.items():
+        if isinstance(v, Metric):
+            v = v.value()
+        json_serializable_report[k] = v
+
     # Save report
     with open(report_fname, 'w') as f:
-        print(f'[ Saving model report to {report_fname} ... ]')
-        json.dump({'opt': opt, 'report': report}, f, indent=4)
+        logging.info(f'Saving model report to {report_fname}')
+        json.dump({'opt': opt, 'report': json_serializable_report}, f, indent=4)
+        f.write("\n")  # for jq
 
 
 def _eval_single_world(opt, agent, task):
-    print(
-        '[ Evaluating task {} using datatype {}. ] '.format(
-            task, opt.get('datatype', 'N/A')
-        )
-    )
+    logging.info(f'Evaluating task {task} using datatype {opt.get("datatype")}.')
     # set up world logger
     world_logger = WorldLogger(opt) if opt['save_world_logs'] else None
 
@@ -131,7 +136,7 @@ def _eval_single_world(opt, agent, task):
             text, report = log_time.log(
                 report.get('exs', 0), min(max_cnt, world.num_examples()), report
             )
-            print(text)
+            logging.info(text)
 
     report = world.report()
     world.reset()
@@ -187,16 +192,22 @@ def eval_model(opt, print_parser=None):
 
     # print announcments and report
     print_announcements(opt)
-    print(
-        '[ Finished evaluating tasks {} using datatype {} ]'.format(
-            tasks, opt.get('datatype', 'N/A')
-        )
+    logging.info(
+        f'Finished evaluating tasks {tasks} using datatype {opt.get("datatype")}'
     )
     print(nice_report(report))
     _save_eval_stats(opt, report)
     return report
 
 
+class EvalModel(ParlaiScript):
+    @classmethod
+    def setup_args(cls):
+        return setup_args()
+
+    def run(self):
+        return eval_model(self.opt)
+
+
 if __name__ == '__main__':
-    parser = setup_args()
-    eval_model(parser.parse_args(print_args=False))
+    EvalModel.main()

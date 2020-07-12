@@ -11,7 +11,8 @@ import math
 from itertools import chain
 from typing import Optional
 
-from parlai.utils.misc import warn_once
+import parlai.utils.logging as logging
+from parlai.utils.misc import error_once
 
 try:
     import torch
@@ -140,7 +141,7 @@ def fp16_apex_available() -> bool:
 
         return True
     except ImportError:
-        warn_once(
+        error_once(
             'You set --fp16 true with --fp16-impl apex, but fp16 '
             'with apex is unavailable. To use apex fp16, please '
             'install APEX from https://github.com/NVIDIA/apex.'
@@ -331,7 +332,7 @@ class MemoryEfficientFP16Optimizer(torch.optim.Optimizer):
                         'increasing the batch size.'
                     ).format(self.min_loss_scale)
                 )
-            warn_once(f'[ Overflow: setting loss scale to {self.scaler.loss_scale} ]')
+            logging.info(f'Overflow: setting loss scale to {self.scaler.loss_scale}')
             self.zero_grad()
             return -1
 
@@ -553,8 +554,10 @@ class Adafactor(torch.optim.Optimizer):
         decay_rate=-0.8,
         beta1=None,
         weight_decay=0.0,
-        scale_parameter=True,
-        relative_step=True,
+        # scale_parameter=True, TODO: enable it back. This leads lr decay to 0.
+        # Since for some schdulers, they only update lr per validation step.
+        # In such cases lr will keep decay every update.
+        # relative_step=True,
         warmup_init=False,
     ):
         defaults = dict(
@@ -564,14 +567,17 @@ class Adafactor(torch.optim.Optimizer):
             decay_rate=decay_rate,
             beta1=beta1,
             weight_decay=weight_decay,
-            scale_parameter=scale_parameter,
-            relative_step=relative_step,
+            scale_parameter=False,
+            relative_step=False,
             warmup_init=warmup_init,
         )
         super(Adafactor, self).__init__(params, defaults)
 
     def _get_lr(self, param_group, param_state):
         rel_step_sz = param_group['lr']
+        # TODO: enable it back. This leads lr decay to 0.
+        # Since for some schdulers, they only update lr per validation step.
+        # In such cases lr will keep decay every update.
         if param_group['relative_step']:
             min_step = (
                 1e-6 * param_state['step'] if param_group['warmup_init'] else 1e-2

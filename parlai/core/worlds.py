@@ -57,8 +57,10 @@ from parlai.core.loader import load_task_module, load_world_module
 from parlai.core.metrics import aggregate_named_reports
 from parlai.core.opt import Opt
 from parlai.core.teachers import Teacher, create_task_agent_from_taskname
+from parlai.utils.data import DatatypeHelper
 from parlai.utils.misc import Timer, display_messages
 from parlai.tasks.tasks import ids_to_tasks
+import parlai.utils.logging as logging
 
 
 def validate(observation):
@@ -149,6 +151,12 @@ class World(object):
         shared_data['opt'] = self.opt
         shared_data['agents'] = self._share_agents()
         return shared_data
+
+    def clone(self):
+        """
+        Create a duplicate of the world.
+        """
+        return type(self)(opt=copy.deepcopy(self.opt), agents=None, shared=self.share())
 
     def _share_agents(self):
         """
@@ -599,11 +607,14 @@ class MultiWorld(World):
         self.world_idx = -1
         self.new_world = True
         self.parleys = -1
-        self.random = opt.get('datatype', None) == 'train'
+        # Check to see if we are training
+        self.is_training = DatatypeHelper.is_training(opt.get('datatype'))
         # Make multi-task task probabilities.
         self.cum_task_weights = [1] * len(self.worlds)
         self.task_choices = range(len(self.worlds))
         weights = self.opt.get('multitask_weights', [1])
+        if weights == 'stochastic':
+            weights = [w.num_episodes() for w in self.worlds]
         sum = 0
         for i in self.task_choices:
             if len(weights) > i:
@@ -708,7 +719,7 @@ class MultiWorld(World):
         if self.new_world:
             self.new_world = False
             self.parleys = 0
-            if self.random:
+            if self.is_training:
                 # select random world
                 self.world_idx = random.choices(
                     self.task_choices, cum_weights=self.cum_task_weights
@@ -1082,15 +1093,12 @@ class DynamicBatchWorld(World):
             self.max_batch_size = opt['batchsize']
 
         # TODO: check to ensure the agent has self_observe
-        shared = world.share()
         self.world = world
         # TODO: maybe generalize this
         self.max_words = (self.l_truncate + self.truncate) * opt['batchsize']
 
         # buffer worlds
-        self.worlds = [
-            shared['world_class'](opt, shared=shared) for _ in range(self._BUFFER_SIZE)
-        ]
+        self.worlds = [world.clone() for _ in range(self._BUFFER_SIZE)]
 
         self.reset()
 
@@ -1387,7 +1395,7 @@ class HogwildWorld(World):
             # otherwise they might reset one another after processing some exs
             self.sync['threads_sem'].acquire()  # type: ignore
 
-        print(f'[ {self.numthreads} threads initialized ]')
+        logging.info(f'{self.numthreads} threads initialized')
 
     def display(self):
         """
@@ -1565,12 +1573,11 @@ def _create_task_agents(opt: Opt):
         # do not need task agents in interactive or self chat settings
         return []
 
-    my_module = load_task_module(opt['task'])
     try:
         # Tries to call the create_agent function in agents.py
+        my_module = load_task_module(opt['task'])
         task_agents = my_module.create_agents(opt)  # type: ignore
-
-    except AttributeError:
+    except (ModuleNotFoundError, AttributeError):
         # Create_agent not found, so try to create the teacher directly.
         return create_task_agent_from_taskname(opt)
     if type(task_agents) != list:
@@ -1616,7 +1623,7 @@ def create_task(opt: Opt, user_agents, default_world=None):
     # (e.g. "#QA" to the list of tasks that are QA tasks).
     opt = copy.deepcopy(opt)
     opt['task'] = ids_to_tasks(opt['task'])
-    print('[creating task(s): ' + opt['task'] + ']')
+    logging.info(f"creating task(s): {opt['task']}")
 
     # check if single or multithreaded, and single-example or batched examples
     if ',' not in opt['task']:

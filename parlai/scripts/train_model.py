@@ -46,6 +46,8 @@ from parlai.utils.distributed import (
     num_workers,
 )
 from parlai.utils.misc import Timer, nice_report
+from parlai.scripts.script import ParlaiScript
+import parlai.utils.logging as logging
 
 def setup_args(parser=None) -> ParlaiParser:
     """
@@ -250,10 +252,6 @@ class TrainLoop:
         # it will by-default ignore SIGINTs, and KeyboardInterrupt exceptions are
         # not produced. This line brings them back
         signal.signal(signal.SIGINT, signal.default_int_handler)
-
-        if isinstance(opt, ParlaiParser):
-            print('[ Deprecated Warning: TrainLoop should be passed opt not Parser ]')
-            opt = opt.parse_args()
         # Possibly load from checkpoint
         trainstats_suffix = '.trainstats'  # we might load training statistics from here
         if (
@@ -272,8 +270,9 @@ class TrainLoop:
         if 'dict_file' in opt:
             if opt['dict_file'] is None and opt.get('model_file'):
                 opt['dict_file'] = opt['model_file'] + '.dict'
-            print("[ building dictionary first... ]")
+            logging.info("building dictionary first...")
             build_dict(opt, skip_if_built=True)
+
         # Create model and assign it to the specified task
         self.agent = create_agent(opt)
         self.world = create_task(opt, self.agent)
@@ -282,7 +281,7 @@ class TrainLoop:
         self.validate_time = Timer()
         self.log_time = Timer()
         self.save_time = Timer()
-        print('[ training... ]')
+
         self.parleys = 0
         self.max_num_epochs = (
             opt['num_epochs'] if opt['num_epochs'] > 0 else float('inf')
@@ -361,6 +360,7 @@ class TrainLoop:
         if not is_primary_worker():
             # never do IO as a non-primary worker
             return
+
         if not self.opt.get('model_file'):
             # nothing to save to, just exit
             return
@@ -434,7 +434,7 @@ class TrainLoop:
             and opt.get('save_after_valid')
             and is_primary_worker()
         ):
-            print("[ saving model checkpoint: " + opt['model_file'] + ".checkpoint ]")
+            logging.info(f"saving model checkpoint: {opt['model_file']}.checkpoint")
             self.save_model('.checkpoint')
 
         # send valid metrics to agent if the agent wants them
@@ -452,8 +452,8 @@ class TrainLoop:
             self.best_valid is None
             or self.valid_optim * new_valid > self.valid_optim * self.best_valid
         ):
-            print(
-                '[ new best {}: {:.4g}{} ]'.format(
+            logging.success(
+                'new best {}: {:.4g}{}'.format(
                     opt['validation_metric'],
                     new_valid,
                     ' (previous best was {:.4g})'.format(self.best_valid)
@@ -464,19 +464,19 @@ class TrainLoop:
             self.best_valid = new_valid
             self.impatience = 0
             if opt.get('model_file') and is_primary_worker():
-                print("[ saving best valid model: " + opt['model_file'] + " ]")
+                logging.info(f"saving best valid model: {opt['model_file']}")
                 self.save_model()
                 self.saved = True
             if (
                 opt['validation_metric'] == 'accuracy'
                 and self.best_valid >= opt['validation_cutoff']
             ):
-                print('[ task solved! stopping. ]')
+                logging.info('task solved! stopping.')
                 return True
         else:
             self.impatience += 1
-            print(
-                '[ did not beat best {}: {} impatience: {} ]'.format(
+            logging.report(
+                'did not beat best {}: {} impatience: {}'.format(
                     opt['validation_metric'], round(self.best_valid, 4), self.impatience
                 )
             )
@@ -487,7 +487,7 @@ class TrainLoop:
             opt['validation_patience'] > 0
             and self.impatience >= opt['validation_patience']
         ):
-            print('[ ran out of patience! stopping training. ]')
+            logging.info('ran out of patience! stopping training.')
             return True
         return False
 
@@ -526,7 +526,7 @@ class TrainLoop:
             limits the number of examples if max_exs > 0
         """
 
-        print('[ running eval: ' + datatype + ' ]')
+        logging.info(f'running eval: {datatype}')
         timer = Timer()
         reports = []
 
@@ -544,8 +544,8 @@ class TrainLoop:
         report = self._sync_metrics(report)
 
         metrics = f'{datatype}:\n{nice_report(report)}\n'
-        print(f'[ eval completed in {timer.time():.2f}s ]')
-        print(metrics)
+        logging.info(f'eval completed in {timer.time():.2f}s')
+        logging.report(metrics)
 
         # write to file
         if write_log and opt.get('model_file') and is_primary_worker():
@@ -608,19 +608,19 @@ class TrainLoop:
         self.world.reset_metrics()
 
         # time elapsed
-        logs.append('time:{}s'.format(np.floor(self.train_time.time())))
-        logs.append('total_exs:{}'.format(self._total_exs))
+        logs.append(f'time:{self.train_time.time():.0f}s')
+        logs.append(f'total_exs:{self._total_exs}')
 
         if self._total_epochs >= 0:
             # only if it's unbounded
-            logs.append('epochs:{}'.format(round(self._total_epochs, 2)))
+            logs.append(f'epochs:{self._total_epochs:.2f}')
 
         time_left = self._compute_eta(self._total_epochs, self.train_time.time())
         if time_left is not None:
-            logs.append('time_left:{}s'.format(max(0, np.ceil(time_left))))
+            logs.append(f'time_left:{max(0,time_left):.0f}s')
 
-        log = '[ {} ]\n{}\n'.format(' '.join(logs), nice_report(train_report))
-        print(log)
+        log = '{}\n{}\n'.format(' '.join(logs), nice_report(train_report))
+        logging.info(log)
         self.log_time.reset()
 
         if opt['tensorboard_log'] and is_primary_worker():
@@ -632,6 +632,7 @@ class TrainLoop:
 
         :return: tuple of reports (validation_report, test_report)
         """
+        logging.info('training...')
         opt = self.opt
         world = self.world
         with world:
@@ -666,14 +667,12 @@ class TrainLoop:
                 # check counters and timers
                 if self._total_epochs >= self.max_num_epochs:
                     self.log()
-                    print(
-                        '[ num_epochs completed:{} time elapsed:{}s ]'.format(
-                            self.max_num_epochs, train_time
-                        )
+                    logging.info(
+                        f'num_epochs completed:{self.max_num_epochs} time elapsed:{train_time}s'
                     )
                     break
                 if train_time > self.max_train_time:
-                    print('[ max_train_time elapsed:{}s ]'.format(train_time))
+                    logging.info(f'max_train_time elapsed:{train_time}s')
                     break
                 if log_time > self.log_every_n_secs:
                     self.log()
@@ -705,10 +704,8 @@ class TrainLoop:
                     and opt.get('model_file')
                     and is_primary_worker()
                 ):
-                    print(
-                        "[ saving model checkpoint: {}.checkpoint".format(
-                            opt['model_file']
-                        )
+                    logging.info(
+                        f"saving model checkpoint: {opt['model_file']}.checkpoint"
                     )
                     if opt['tensorboard_log'] and is_primary_worker():
                         self.tb_logger.flush()
@@ -751,13 +748,17 @@ class TrainLoop:
         return v_report, t_report
 
 
+class TrainModel(ParlaiScript):
+    @classmethod
+    def setup_args(cls):
+        return setup_args()
+
+    def run(self):
+        self.train_loop = TrainLoop(self.opt)
+        self.parser.opt = self.train_loop.agent.opt
+        self.parser.print_args()
+        return self.train_loop.train()
+
+
 if __name__ == '__main__':
-
-    try:
-        import torch.multiprocessing as multiprocessing
-    except ImportError:
-        import multiprocessing  # type: ignore
-
-    multiprocessing.set_start_method('spawn')
-    TrainLoop(setup_args().parse_args()).train()
-    print()
+    TrainModel.main()

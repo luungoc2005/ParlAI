@@ -9,10 +9,11 @@ trained model.
 """
 
 from parlai.core.params import ParlaiParser
+from parlai.scripts.script import ParlaiScript
 from parlai.core.agents import create_agent
 from parlai.core.worlds import create_task
 from parlai.agents.safe_local_human.safe_local_human import SafeLocalHumanAgent
-
+import parlai.utils.logging as logging
 import random
 
 
@@ -45,14 +46,14 @@ def setup_args(parser=None):
     return parser
 
 
-def interactive(opt, print_parser=None):
+def safe_interactive(opt, print_parser=None):
     if print_parser is not None:
         if print_parser is True and isinstance(opt, ParlaiParser):
             print_parser = opt
         elif print_parser is False:
             print_parser = None
     if isinstance(opt, ParlaiParser):
-        print('[ Deprecated Warning: interactive should be passed opt not Parser ]')
+        logging.error('interactive should be passed opt not Parser')
         opt = opt.parse_args()
 
     # Create model and assign it to the specified task
@@ -64,18 +65,30 @@ def interactive(opt, print_parser=None):
     human_agent = SafeLocalHumanAgent(opt)
     world = create_task(opt, [human_agent, agent])
 
-    # Show some example dialogs:
+    # Interact until episode done
     while True:
         world.parley()
+        bot_act = world.get_acts()[-1]
+        if 'bot_offensive' in bot_act and bot_act['bot_offensive']:
+            agent.reset()
+
         if opt.get('display_examples'):
-            print("---")
+            print('---')
             print(world.display())
         if world.epoch_done():
-            print("EPOCH DONE")
+            logging.info('epoch done')
             break
+
+
+class SafeInteractive(ParlaiScript):
+    @classmethod
+    def setup_args(cls):
+        return setup_args()
+
+    def run(self):
+        return safe_interactive(self.opt, print_parser=self.parser)
 
 
 if __name__ == '__main__':
     random.seed(42)
-    parser = setup_args()
-    interactive(parser.parse_args(print_args=False), print_parser=parser)
+    SafeInteractive.main()

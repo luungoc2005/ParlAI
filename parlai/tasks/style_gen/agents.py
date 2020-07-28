@@ -45,7 +45,7 @@ class LabeledBlendedSkillTalkTeacher(ParlAIDialogTeacher):
     """
 
     def __init__(self, opt, shared=None):
-        opt['parlaidialogteacher_datafile'] = get_style_labeled_data_path(
+        opt['datafile'] = get_style_labeled_data_path(
             opt=opt, base_task='blended_skill_talk'
         )
         super().__init__(opt, shared=shared)
@@ -58,7 +58,7 @@ class LabeledConvAI2PersonaTopicifierTeacher(ParlAIDialogTeacher):
     """
 
     def __init__(self, opt, shared=None):
-        opt['parlaidialogteacher_datafile'] = get_style_labeled_data_path(
+        opt['datafile'] = get_style_labeled_data_path(
             opt=opt, base_task='blended_skill_talk:ConvAI2PersonaTopicifierTeacher'
         )
         super().__init__(opt, shared=shared)
@@ -71,7 +71,7 @@ class LabeledEDPersonaTopicifierTeacher(ParlAIDialogTeacher):
     """
 
     def __init__(self, opt, shared=None):
-        opt['parlaidialogteacher_datafile'] = get_style_labeled_data_path(
+        opt['datafile'] = get_style_labeled_data_path(
             opt=opt, base_task='blended_skill_talk:EDPersonaTopicifierTeacher'
         )
         super().__init__(opt, shared=shared)
@@ -84,7 +84,7 @@ class LabeledWoWPersonaTopicifierTeacher(ParlAIDialogTeacher):
     """
 
     def __init__(self, opt, shared=None):
-        opt['parlaidialogteacher_datafile'] = get_style_labeled_data_path(
+        opt['datafile'] = get_style_labeled_data_path(
             opt=opt, base_task='blended_skill_talk:WoWPersonaTopicifierTeacher'
         )
         super().__init__(opt, shared=shared)

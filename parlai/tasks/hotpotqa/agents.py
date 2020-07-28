@@ -34,14 +34,14 @@ def _path(opt, teacher_name):
 class DistractorTeacher(ParlAIDialogTeacher):
     def __init__(self, opt, shared=None):
         opt = copy.deepcopy(opt)
-        opt['parlaidialogteacher_datafile'] = _path(opt, "distractor")
+        opt['datafile'] = _path(opt, "distractor")
         super().__init__(opt, shared)
 
 
 class FullwikiTeacher(ParlAIDialogTeacher):
     def __init__(self, opt, shared=None):
         opt = copy.deepcopy(opt)
-        opt['parlaidialogteacher_datafile'] = _path(opt, "fullwiki")
+        opt['datafile'] = _path(opt, "fullwiki")
         super().__init__(opt, shared)
 
 

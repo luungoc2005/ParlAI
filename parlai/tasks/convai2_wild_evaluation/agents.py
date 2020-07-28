@@ -22,5 +22,5 @@ def _path(opt):
 class DefaultTeacher(ParlAIDialogTeacher):
     def __init__(self, opt, shared=None):
         opt = copy.deepcopy(opt)
-        opt['parlaidialogteacher_datafile'] = _path(opt)
+        opt['datafile'] = _path(opt)
         super().__init__(opt, shared)

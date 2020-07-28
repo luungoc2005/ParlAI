@@ -1252,7 +1252,7 @@ class TransformerGeneratorModel(TorchGeneratorModel):
             n_positions=n_positions,
             n_segments=n_segments,
         )
-        self.decoder = _build_decoder(
+        self.decoder = self.build_decoder(
             opt, 
             dictionary, 
             self.embeddings, 

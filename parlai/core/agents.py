@@ -410,6 +410,8 @@ def create_agent(opt: Opt, requireModelExists=False):
     else:
         raise RuntimeError('Need to set `model` argument to use create_agent.')
 
+    print(model)
+
 
 # Helper functions to create agent/agents given shared parameters
 # returned from agent.share(). Useful for parallelism, sharing params, etc.

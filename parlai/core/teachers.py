@@ -1400,9 +1400,8 @@ class ParlAIDialogTeacher(DialogTeacher):
             alternate.clear()
 
     def _setup_data(self, path):
-        logging.info(f"Loading ParlAI text data: {path}")
-        self.episodes = []
-        self.num_exs = 0
+        print("[loading parlAI text data:" + path + "]")
+        new_episode = True
         eps = []
         with open(path, newline='\n') as read:
             for line in read:
@@ -1418,18 +1417,6 @@ class ParlAIDialogTeacher(DialogTeacher):
                         f"for you automatically. This is happening on Line {line_no} "
                         f"in {path}. The line is:\n\t{line}"
                     )
-                if msg and 'text' not in msg:
-                    raise ValueError(
-                        f'ParlaiDialogTeacher requires a "text" field in every '
-                        f'entry, but one is missing in Line {line_no} in {path}. '
-                        f'The line is:\n\t{line}'
-                    )
-                if msg and 'labels' not in msg:
-                    raise ValueError(
-                        f'ParlaiDialogTeacher requires a "labels" field in every '
-                        f'entry, but one is missing in Line {line_no} in {path}. '
-                        f'The line is:\n\t{line}'
-                    )
                 if msg:
                     # eps.append(msg)
                     eps = [
@@ -1443,18 +1430,11 @@ class ParlAIDialogTeacher(DialogTeacher):
                         yield eps, False
                     
                     if msg.get('episode_done', False):
-                        self.episodes.append(eps)
-                        eps = []
-        if len(eps) > 0:
-            # add last episode
-            eps[-1].force_set('episode_done', True)
-            self.episodes.append(eps)
-        if len(self.episodes) == 1 and line_no > 100:
-            logging.error(
-                f'The data in {path} looks like one very long episode. If this '
-                f'is intentional, you may ignore this, but you MAY have a bug in '
-                f'your data.'
-            )
+                        new_episode = True
+        # if len(eps) > 0:
+        #     # add last episode
+        #     eps[-1].force_set('episode_done', True)
+        #     self.episodes.append(eps)
 
 
 class ConversationTeacher(FixedDialogTeacher):

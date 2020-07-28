@@ -76,6 +76,7 @@ def interactive(opt, print_parser=None):
         opt = opt.parse_args()
 
     # Create model and assign it to the specified task
+    print(opt)
     agent = create_agent(opt, requireModelExists=True)
     if print_parser:
         # Show arguments after loading model

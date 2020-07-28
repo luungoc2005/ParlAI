@@ -1,8 +1,19 @@
 from parlai.core.opt import Opt
 from parlai.core.torch_agent import History, Batch
-from parlai.core.torch_generator_agent import TorchGeneratorAgent
+from parlai.core.torch_generator_agent import TorchGeneratorAgent, PPLMetric
 from collections import deque
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import parlai.utils.logging as logging
+from parlai.core.metrics import (
+    Metric,
+    FixedMetric,
+    SumMetric,
+    AverageMetric,
+    BleuMetric,
+    FairseqBleuMetric,
+)
 
 class HistoryWithTokenType(History):
 
@@ -358,3 +369,131 @@ class TorchGeneratorWithTokenType(TorchGeneratorAgent):
         additional inputs.
         """
         return (batch.text_vec, None, batch.tokentype_vec,)
+
+
+class TorchDistilledGenerator(TorchGeneratorAgent):
+
+    def set_teacher_agent(self, teacher_agent, distill_temperature=2, distill_alpha=.9):
+        self.teacher_agent = teacher_agent
+        self.teacher_agent.model.eval()
+        self.distill_temperature = distill_temperature
+        self.distill_alpha = distill_alpha
+
+
+    def compute_loss(self, batch, return_output=False):
+        """
+        Compute and return the loss for the given batch.
+
+        Easily overridable for customized loss functions.
+
+        If return_output is True, the full output from the call to self.model()
+        is also returned, via a (loss, model_output) pair.
+        """
+        model_input = self._model_input(batch)
+        with torch.no_grad():
+            teacher_output = self.teacher_agent.model(*model_input, ys=batch.label_vec)
+            teacher_scores, teacher_preds, *_ = teacher_output
+
+        if batch.label_vec is None:
+            raise ValueError('Cannot compute loss without a label.')
+        model_output = self.model(*model_input, ys=batch.label_vec)
+        scores, preds, *_ = model_output
+        score_view = scores.view(-1, scores.size(-1))
+        
+        loss = self.criterion(score_view, batch.label_vec.view(-1))
+
+        loss = loss.view(scores.shape[:-1]).sum(dim=1)
+
+        # teacher loss (for record keeping)
+        teacher_score_view = teacher_scores.view(-1, teacher_scores.size(-1))
+        teacher_loss = self.criterion(teacher_score_view, batch.label_vec.view(-1))
+        teacher_loss = teacher_loss.view(teacher_scores.shape[:-1]).sum(dim=1)
+
+        # KL loss
+        ce_loss_fct = nn.KLDivLoss(reduction="none")
+        loss_kl = (
+            ce_loss_fct(
+                F.log_softmax(scores / self.distill_temperature, dim=-1),
+                F.softmax(teacher_scores / self.distill_temperature, dim=-1)
+            )
+            * (self.distill_temperature) ** 2
+        ).view(scores.shape[0], -1).sum(dim=-1)
+        # print(loss.size())
+        # print(loss_kl.size())
+        
+        # save loss to metrics
+        notnull = batch.label_vec.ne(self.NULL_IDX)
+        target_tokens = notnull.long().sum(dim=-1)
+        correct = ((batch.label_vec == preds) * notnull).sum(dim=-1)
+
+        teacher_correct = ((batch.label_vec == teacher_preds) * notnull).sum(dim=-1)
+        
+        self.record_local_metric(
+            'kl_loss', 
+            AverageMetric.many(
+                loss_kl, 
+                target_tokens
+            )
+        )
+        # print(loss.size())
+        # print(target_tokens.size())
+        self.record_local_metric('loss', AverageMetric.many(loss, target_tokens))
+        self.record_local_metric('ppl', PPLMetric.many(loss, target_tokens))
+        self.record_local_metric(
+            'token_acc', AverageMetric.many(correct, target_tokens),
+        )
+        self.record_local_metric('teacher_loss', AverageMetric.many(teacher_loss, target_tokens))
+        self.record_local_metric('teacher_ppl', PPLMetric.many(teacher_loss, target_tokens))
+        self.record_local_metric(
+            'teacher_token_acc', AverageMetric.many(teacher_correct, target_tokens),
+        )
+        # actually do backwards loss
+        loss = loss.sum()
+        loss /= target_tokens.sum()  # average loss per token
+
+        loss = self.distill_alpha * loss_kl + (1 - self.distill_alpha) * loss
+        loss = loss.mean()
+
+        if return_output:
+            return (loss, model_output)
+        else:
+            return loss
+
+    def train_step(self, batch):
+        """
+        Train on a single batch of examples.
+        """
+        # helps with memory usage
+        # note we want to use the opt's batchsize instead of the observed batch size
+        # in case dynamic batching is in use
+        self._init_cuda_buffer(self.opt['batchsize'], self.label_truncate or 256)
+        self.model.train()
+        self.zero_grad()
+
+        try:
+            loss = self.compute_loss(batch)
+            self.backward(loss)
+            self.update_params()
+            oom_sync = False
+        except RuntimeError as e:
+            # catch out of memory exceptions during fwd/bck (skip batch)
+            if 'out of memory' in str(e):
+                oom_sync = True
+                logging.error(
+                    'Ran out of memory, skipping batch. '
+                    'if this happens frequently, decrease batchsize or '
+                    'truncate the inputs to the model.'
+                )
+                self.global_metrics.add('skipped_batches', SumMetric(1))
+            else:
+                raise e
+
+        if oom_sync:
+            # moved outside of the try-except because the raised exception in scope
+            # actually prevents from the data being freed, which can sometimes cause
+            # us to OOM during our OOM handling.
+            # https://github.com/pytorch/pytorch/issues/18853#issuecomment-583779161
+
+            # gradients are synced on backward, now this model is going to be
+            # out of sync! catch up with the other workers
+            self._init_cuda_buffer(8, 8, True)

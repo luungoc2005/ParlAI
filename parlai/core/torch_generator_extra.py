@@ -398,6 +398,13 @@ class TorchDistilledGenerator(TorchGeneratorAgent):
             raise ValueError('Cannot compute loss without a label.')
         model_output = self.model(*model_input, ys=batch.label_vec)
         scores, preds, *_ = model_output
+        
+        if scores.size(-1) < teacher_scores.size(-1):
+            vocab_difference = teacher_scores.size(-1) - scores.size(-1)
+            zeros_vec = torch.zeros((*scores.size()[:-1], vocab_difference))
+            scores = torch.cat((scores, zeros_vec.type_as(scores)), dim=-1)
+            teacher_scores[:,:,-vocab_difference:] = 0 # also zeros out teacher outputs
+
         score_view = scores.view(-1, scores.size(-1))
         
         loss = self.criterion(score_view, batch.label_vec.view(-1))

@@ -72,7 +72,7 @@ class SelfFeedingTeacher(ParlAIDialogTeacher):
         if not os.path.exists(path):
             raise ValueError("Unrecognized filepath: {}".format(path))
 
-        opt['parlaidialogteacher_datafile'] = path
+        opt['datafile'] = path
         opt['datafile'] = path
         super().__init__(opt, shared)
 

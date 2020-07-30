@@ -212,7 +212,7 @@ class FulldocTeacher(ParlAIDialogTeacher):
         datafile = os.path.join(
             opt['datapath'], 'SQuAD-fulldoc', "squad_fulldocs." + suffix + ":ordered"
         )
-        opt['parlaidialogteacher_datafile'] = datafile
+        opt['datafile'] = datafile
         super().__init__(opt, shared)
         self.id = 'squad-fulldoc'
         self.reset()

@@ -83,7 +83,7 @@ def safe_personas_path(opt: Opt) -> str:
 class BlendedSkillTalkTeacher(ParlAIDialogTeacher):
     def __init__(self, opt, shared=None):
         opt = copy.deepcopy(opt)
-        opt['parlaidialogteacher_datafile'] = _processed_data_path(opt)
+        opt['datafile'] = _processed_data_path(opt)
         super().__init__(opt, shared)
 
 

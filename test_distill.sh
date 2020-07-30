@@ -7,7 +7,7 @@ python -m parlai.scripts.train_distill_model \
 --variant prelayernorm --n_positions=512 --truncate=512 \
 --inference greedy --beam-size 1 --skip-generation True \
 --share_word_embeddings True \
---embedding-size 768 --n-heads 8 --n-layers 12 --ffn_size 768 --activation gelu --gradient-clip 0.1 \
+--embedding-size 768 --n-heads 12 --n-layers 12 --ffn_size 768 --activation relu --gradient-clip 0.1 \
 --learn-positional-embeddings True --dropout 0.1 --attention-dropout 0.1 \
 --num-epochs 1 -veps 0.01 -vme 512 -vmt ppl -vmm min -sval True \
 -bs 16 --optimizer adamax -lr 1e-05 \

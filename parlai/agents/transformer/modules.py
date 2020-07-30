@@ -57,6 +57,16 @@ def _normalize(tensor, norm_layer):
         return norm_layer(tensor)
 
 
+class NoNorm(nn.Module):
+    def __init__(self, feat_size, eps=None):
+        super().__init__()
+        self.bias = nn.Parameter(torch.zeros(feat_size))
+        self.weight = nn.Parameter(torch.ones(feat_size))
+
+    def forward(self, input_tensor):
+        return input_tensor * self.weight + self.bias
+
+
 def _create_embeddings(dictionary, embedding_size, padding_idx):
     """
     Create and initialize word embeddings.
@@ -456,8 +466,13 @@ class TransformerEncoder(nn.Module):
             nn.init.normal_(self.position_embeddings.weight, 0, embedding_size ** -0.5)
 
         # embedding normalization
-        if self.variant == 'xlm' or self.variant == 'prelayernorm' or self.variant == 'rezero' or self.variant == 'bart':
+        if self.variant == 'xlm' or \
+           self.variant == 'prelayernorm' or \
+           self.variant == 'rezero' or \
+           self.variant == 'bart':
             self.norm_embeddings = LayerNorm(self.dim, eps=LAYER_NORM_EPS)
+        elif self.variant == 'nonorm':
+            self.norm_embeddings = NoNorm(self.dim)
         elif self.variant == 'aiayn':
             pass
         else:
@@ -691,6 +706,9 @@ class TransformerEncoderLayer(nn.Module):
 
         if self.variant == 'rezero':
             self.resweight = nn.Parameter(torch.Tensor([0]))
+        elif self.variant == 'nonorm':
+            self.norm1 = NoNorm(embedding_size)
+            self.norm2 = NoNorm(embedding_size)
         else:
             self.norm1 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
             self.norm2 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
@@ -708,7 +726,10 @@ class TransformerEncoderLayer(nn.Module):
         if self.variant == 'rezero':
             residual = residual * self.resweight
         tensor = residual + self.dropout(attended_tensor)
-        if self.variant == 'aiayn' or self.variant == 'xlm' or self.variant == 'bart':
+        if (self.variant == 'aiayn' or \
+            self.variant == 'xlm' or \
+            self.variant == 'bart' or \
+            self.variant == 'nonorm'):
             tensor = _normalize(tensor, self.norm1)
         residual = tensor
         if self.variant == 'prelayernorm':
@@ -722,7 +743,10 @@ class TransformerEncoderLayer(nn.Module):
         if self.variant == 'rezero':
             src2 = src2 * self.resweight
         tensor = residual + src2
-        if self.variant == 'aiayn' or self.variant == 'xlm' or self.variant == 'bart':
+        if (self.variant == 'aiayn' or \
+            self.variant == 'xlm' or \
+            self.variant == 'bart' or \
+            self.variant == 'nonorm'):
             tensor = _normalize(tensor, self.norm2)
         tensor *= mask.unsqueeze(-1).type_as(tensor)
         return tensor
@@ -809,6 +833,8 @@ class TransformerDecoder(nn.Module):
                     'DEPRECATED: XLM should only be used for backwards compatibility, '
                     'as it involves a less-stable layernorm operation.'
                 )
+        elif self.variant == 'nonorm':
+            self.norm_embeddings = NoNorm(self.dim)
         elif self.variant == 'aiayn' or self.variant == 'rezero':
             pass
         else:
@@ -1032,6 +1058,10 @@ class TransformerDecoderLayer(nn.Module):
         )
         if self.variant == 'rezero':
             self.resweight = nn.Parameter(torch.Tensor([0]))
+        elif self.variant == 'nonorm':
+            self.norm1 = NoNorm(embedding_size)
+            self.norm2 = NoNorm(embedding_size)
+            self.norm3 = NoNorm(embedding_size)
         else:
             self.norm1 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
             self.norm2 = LayerNorm(embedding_size, eps=LAYER_NORM_EPS)
@@ -1065,7 +1095,10 @@ class TransformerDecoderLayer(nn.Module):
         if self.variant == 'rezero':
             residual = residual * self.resweight
         x = x + residual
-        if self.variant == 'aiayn' or self.variant == 'xlm' or self.variant == 'bart':
+        if (self.variant == 'aiayn' or \
+            self.variant == 'xlm' or \
+            self.variant == 'bart' or \
+            self.variant == 'nonorm'):
             x = _normalize(x, self.norm1)
 
         residual = x
@@ -1084,7 +1117,10 @@ class TransformerDecoderLayer(nn.Module):
         if self.variant == 'rezero':
             x = x * self.resweight
         x = residual + x
-        if self.variant == 'aiayn' or self.variant == 'xlm' or self.variant == 'bart':
+        if (self.variant == 'aiayn' or \
+            self.variant == 'xlm' or \
+            self.variant == 'bart' or \
+            self.variant == 'nonorm'):
             x = _normalize(x, self.norm2)
 
         # finally the ffn
@@ -1101,7 +1137,10 @@ class TransformerDecoderLayer(nn.Module):
         if self.variant == 'rezero':
             x = x * self.resweight
         x = residual + x
-        if self.variant == 'aiayn' or self.variant == 'xlm' or self.variant == 'bart':
+        if (self.variant == 'aiayn' or \
+            self.variant == 'xlm' or \
+            self.variant == 'bart' or \
+            self.variant == 'nonorm'):
             x = _normalize(x, self.norm3)
 
         new_incr_state = {

@@ -9,7 +9,7 @@ python -m parlai.scripts.train_model -t convai2,convai2_wild_evaluation,mturkwik
 --num-epochs 2 -veps 0.01 -vme 512 -vmt ppl -vmm min -sval True \
 -bs 8 --optimizer mem_eff_adam -lr 5e-5 --update_freq 16 \
 --warmup_updates 8000 --lr-scheduler-patience 200 --lr-scheduler-decay 0.2 -vp 500 \
--tblog True --fp16 True --fp16-impl mem_efficient --dict-extratokens 7 --dynamic_batching batchsort --evaltask convai2
+-tblog True --fp16 True --fp16-impl mem_efficient --dynamic_batching batchsort --evaltask convai2
 
 # --tie_layers
 # --bpe-vocab ./checkpoints/transformer-withseptoken-opensubtitles-2.checkpoint.dict \

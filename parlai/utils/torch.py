@@ -354,58 +354,59 @@ class PipelineHelper(object):
         # activations (which scale via batchsize), Empirically, I found this
         # heuristic works well enough. The weighting factor of 3 is more or
         # less made up.
-        self.__device_allocations['cuda:0'] += trainable_parameters(model) * 3
+        # self.__device_allocations['cuda:0'] += trainable_parameters(model) * 3
 
-        model.apply(self._place_modulelist)
-        model._apply(self._move_rest_to_cuda0)  # type: ignore
+        # model.apply(self._place_modulelist)
+        # model._apply(self._move_rest_to_cuda0)  # type: ignore
         return model
 
     def _move_rest_to_cuda0(self, parameter: torch.Tensor):
-        if parameter.device.type == 'cpu':
-            return parameter.to('cuda:0')
-        else:
-            return parameter
+        # if parameter.device.type == 'cpu':
+        #     return parameter.to('cuda:0')
+        # else:
+        return parameter
 
     def _place_modulelist(self, submodule: torch.nn.Module) -> None:
-        if not isinstance(submodule, torch.nn.ModuleList):
-            # not a ModuleList, leave it untouched
-            return
+        pass
+        # if not isinstance(submodule, torch.nn.ModuleList):
+        #     # not a ModuleList, leave it untouched
+        #     return
 
-        assert isinstance(submodule, torch.nn.ModuleList)  # for typechecker
-        layers = submodule
+        # assert isinstance(submodule, torch.nn.ModuleList)  # for typechecker
+        # layers = submodule
 
-        # mark this section as MP
-        layers.is_model_parallel = True  # type: ignore
+        # # mark this section as MP
+        # layers.is_model_parallel = True  # type: ignore
 
-        # next, let's figure out how many parameters we can assign to each GPU,
-        # but not make actual assignments yet. Assignments come later because we
-        # want consecutive layers to be collocated
-        keyfunc = self.__device_allocations.__getitem__
-        layer_assignments = {k: 0 for k in self.devices}
-        for layer_no, layer in enumerate(layers):
-            if layer_no == 0:
-                # hard code the first layer to be 0.
-                mostfree = 'cuda:0'
-            else:
-                # otherwise dynamic allocation
-                mostfree = min(self.devices, key=keyfunc)
-            # 32 is a totally arbitrary, made up number that worked in practice
-            # on the large models I tested on. I believe it should be roughly
-            # batch size, but this was set empirically.
-            self.__device_allocations[mostfree] += trainable_parameters(layer) * 32
-            # mark a layer as going to the given element
-            layer_assignments[mostfree] += 1
+        # # next, let's figure out how many parameters we can assign to each GPU,
+        # # but not make actual assignments yet. Assignments come later because we
+        # # want consecutive layers to be collocated
+        # keyfunc = self.__device_allocations.__getitem__
+        # layer_assignments = {k: 0 for k in self.devices}
+        # for layer_no, layer in enumerate(layers):
+        #     if layer_no == 0:
+        #         # hard code the first layer to be 0.
+        #         mostfree = 'cuda:0'
+        #     else:
+        #         # otherwise dynamic allocation
+        #         mostfree = min(self.devices, key=keyfunc)
+        #     # 32 is a totally arbitrary, made up number that worked in practice
+        #     # on the large models I tested on. I believe it should be roughly
+        #     # batch size, but this was set empirically.
+        #     self.__device_allocations[mostfree] += trainable_parameters(layer) * 32
+        #     # mark a layer as going to the given element
+        #     layer_assignments[mostfree] += 1
 
-        devices = self.devices[:]
-        for layer_no, layer in enumerate(layers):
-            layer_gpu = devices[0]
-            assert layer_assignments[layer_gpu] > 0
-            logging.debug(f"Model Parallel: Assigning {layer_no} to {layer_gpu}")
-            layer._mp_gpu = layer_gpu
-            layers[layer_no] = layer.to(layer_gpu)
-            layer_assignments[layer_gpu] -= 1
-            if layer_assignments[layer_gpu] == 0:
-                devices.pop(0)
+        # devices = self.devices[:]
+        # for layer_no, layer in enumerate(layers):
+        #     layer_gpu = devices[0]
+        #     assert layer_assignments[layer_gpu] > 0
+        #     logging.debug(f"Model Parallel: Assigning {layer_no} to {layer_gpu}")
+        #     layer._mp_gpu = layer_gpu
+        #     layers[layer_no] = layer.to(layer_gpu)
+        #     layer_assignments[layer_gpu] -= 1
+        #     if layer_assignments[layer_gpu] == 0:
+        #         devices.pop(0)
 
     @staticmethod
     def guess_split_size(item: Chunk, num_gpus: Optional[int] = None, dim=0) -> int:
@@ -413,7 +414,7 @@ class PipelineHelper(object):
         Estimate the number of chunks we should split the batch into via heuristics.
         """
         if num_gpus is None:
-            num_gpus = torch.cuda.device_count()  # type: ignore
+            num_gpus = 1  # type: ignore
 
         if isinstance(item, torch.Tensor):
             if num_gpus == 1:

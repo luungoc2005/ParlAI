@@ -12,6 +12,7 @@ from torch.autograd import Variable
 from .utils import load_embeddings, AverageMeter
 from .rnn_reader import RnnDocReader
 from parlai.utils.logging import logger
+from parlai.core.xla import xla_device
 
 
 class DocReaderModel(object):
@@ -88,9 +89,9 @@ class DocReaderModel(object):
 
         # Transfer to GPU
         if self.opt['cuda']:
-            inputs = [Variable(e.cuda(non_blocking=True)) for e in ex[:5]]
-            target_s = Variable(ex[5].cuda(non_blocking=True))
-            target_e = Variable(ex[6].cuda(non_blocking=True))
+            inputs = [Variable(e.to(xla_device)) for e in ex[:5]]
+            target_s = Variable(ex[5].to(xla_device))
+            target_e = Variable(ex[6].to(xla_device))
         else:
             inputs = [Variable(e) for e in ex[:5]]
             target_s = Variable(ex[5])
@@ -126,7 +127,7 @@ class DocReaderModel(object):
         # Transfer to GPU
         if self.opt['cuda']:
             inputs = [
-                Variable(e.cuda(non_blocking=True), volatile=True) for e in ex[:5]
+                Variable(e.to(xla_device), volatile=True) for e in ex[:5]
             ]
         else:
             inputs = [Variable(e, volatile=True) for e in ex[:5]]
@@ -176,4 +177,4 @@ class DocReaderModel(object):
             logger.warning('[ WARN: Saving failed... continuing anyway. ]')
 
     def cuda(self):
-        self.network.cuda()
+        self.network.to(xla_device)

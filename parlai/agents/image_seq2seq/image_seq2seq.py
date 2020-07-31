@@ -16,7 +16,7 @@ from parlai.agents.transformer.transformer import TransformerGeneratorAgent
 from parlai.core.dict import DictionaryAgent
 from parlai.core.torch_agent import Batch
 from parlai.core.torch_image_agent import TorchImageAgent
-
+from parlai.core.xla import xla_device
 
 TOKEN_IMAGE = '__image__'
 TOKEN_NO_IMAGE = '__no_image__'
@@ -101,7 +101,7 @@ class ImageSeq2seqAgent(TransformerGeneratorAgent, TorchImageAgent):
         Override to include image feats.
         """
         b = super()._dummy_batch(batchsize, maxlen)
-        image = torch.ones(batchsize, self.image_features_dim).cuda()
+        image = torch.ones(batchsize, self.image_features_dim).to(xla_device)
         if self.n_image_channels > 1:
             image = image.unsqueeze(1).repeat(1, self.n_image_channels, 1)
         if self.fp16:
@@ -110,7 +110,7 @@ class ImageSeq2seqAgent(TransformerGeneratorAgent, TorchImageAgent):
             text_vec=b.text_vec,
             label_vec=b.label_vec,
             image=image,
-            personalities=torch.ones(batchsize, self.opt['embedding_size']).cuda(),
+            personalities=torch.ones(batchsize, self.opt['embedding_size']).to(xla_device),
         )
 
     def batchify_image_features(self, batch: Batch) -> Batch:

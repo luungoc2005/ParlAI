@@ -13,7 +13,7 @@ import tempfile
 import itertools
 from collections import namedtuple
 import parlai.utils.logging as logging
-
+from parlai.core.xla import xla_device
 
 try:
     import torch
@@ -127,9 +127,9 @@ def padded_tensor(
             output[i, :length] = item
 
     if use_cuda:
-        output = output.cuda()
-        if device >= 0:
-            output = output.to(device)
+        output = output.to(xla_device)
+        # if device >= 0:
+        #     output = output.to(device)
     return output, lens
 
 
@@ -176,7 +176,7 @@ def padded_3d(
             output[i, j, : len(item)] = item
 
     if use_cuda:
-        output = output.cuda()
+        output = output.to(xla_device)
 
     return output
 
@@ -209,8 +209,8 @@ def concat_without_padding(text_idx, cand_idx, use_cuda, null_idx=0):
         tokens[i, non_nuls : non_nuls + cand_len] = cand_idx[i, :]
         segments[i, non_nuls : non_nuls + cand_len] = segments_idx[1]
     if use_cuda:
-        tokens = tokens.cuda()
-        segments = segments.cuda()
+        tokens = tokens.to(xla_device)
+        segments = segments.to(xla_device)
     return tokens, segments
 
 

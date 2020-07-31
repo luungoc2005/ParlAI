@@ -7,6 +7,7 @@
 import torch
 import torch.nn as nn
 from parlai.utils.torch import neginf
+from parlai.core.xla import xla_device
 from functools import lru_cache
 
 
@@ -192,8 +193,8 @@ class Embed(nn.Embedding):
         for k in range(1, d + 1):
             for j in range(1, J + 1):
                 m[j - 1, k - 1] = (1 - j / J) - (k / d) * (1 - 2 * j / J)
-        if use_cuda:
-            m = m.cuda()
+
+        m = m.to(xla_device)
         return m
 
 

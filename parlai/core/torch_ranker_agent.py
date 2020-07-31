@@ -19,7 +19,7 @@ import random
 
 import torch
 
-
+from parlai.core.xla import xla_device
 from parlai.core.opt import Opt
 from parlai.utils.distributed import is_distributed
 from parlai.core.torch_agent import TorchAgent, Output
@@ -215,10 +215,10 @@ class TorchRankerAgent(TorchAgent):
                 if self.model_parallel:
                     self.model = PipelineHelper().make_parallel(self.model)
                 else:
-                    self.model.cuda()
+                    self.model.to(xla_device)
                 if self.data_parallel:
                     self.model = torch.nn.DataParallel(self.model)
-                self.criterion.cuda()
+                self.criterion.to(xla_device)
 
         self.rank_top_k = opt.get('rank_top_k', -1)
 
@@ -849,7 +849,7 @@ class TorchRankerAgent(TorchAgent):
                     "".format(len(self.vocab_candidates))
                 )
                 if self.use_cuda:
-                    self.vocab_candidate_vecs = self.vocab_candidate_vecs.cuda()
+                    self.vocab_candidate_vecs = self.vocab_candidate_vecs.to(xla_device)
 
                 if self.encode_candidate_vecs:
                     # encode vocab candidate vecs
@@ -857,7 +857,7 @@ class TorchRankerAgent(TorchAgent):
                         self.vocab_candidate_vecs
                     )
                     if self.use_cuda:
-                        self.vocab_candidate_encs = self.vocab_candidate_encs.cuda()
+                        self.vocab_candidate_encs = self.vocab_candidate_encs.to(xla_device)
                     if self.fp16:
                         self.vocab_candidate_encs = self.vocab_candidate_encs.half()
                     else:
@@ -928,7 +928,7 @@ class TorchRankerAgent(TorchAgent):
                 self.num_fixed_candidates = len(self.fixed_candidates)
                 self.fixed_candidate_vecs = vecs
                 if self.use_cuda:
-                    self.fixed_candidate_vecs = self.fixed_candidate_vecs.cuda()
+                    self.fixed_candidate_vecs = self.fixed_candidate_vecs.to(xla_device)
 
                 if self.encode_candidate_vecs:
                     # candidate encodings are fixed so set them up now
@@ -944,7 +944,7 @@ class TorchRankerAgent(TorchAgent):
                         )
                     self.fixed_candidate_encs = encs
                     if self.use_cuda:
-                        self.fixed_candidate_encs = self.fixed_candidate_encs.cuda()
+                        self.fixed_candidate_encs = self.fixed_candidate_encs.to(xla_device)
                     if self.fp16:
                         self.fixed_candidate_encs = self.fixed_candidate_encs.half()
                     else:

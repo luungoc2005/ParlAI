@@ -28,6 +28,7 @@ import torch
 import parlai.utils.logging as logging
 from torch import optim
 
+from parlai.core.xla import xla_device
 from parlai.core.opt import Opt
 from parlai.core.agents import Agent
 from parlai.utils.thread import SharedTable
@@ -693,12 +694,13 @@ class TorchAgent(ABC, Agent):
         self.__local_metrics_enabled = True
 
         # check for cuda
-        self.use_cuda = not opt['no_cuda'] and torch.cuda.is_available()
+        self.use_cuda = not opt['no_cuda']
         if self.use_cuda:
             if not shared:
                 logging.info('Using CUDA')
             if not shared and opt['gpu'] != -1:
-                torch.cuda.set_device(opt['gpu'])
+                # torch.cuda.set_device(opt['gpu'])
+                pass
 
         # whether we're using multi-gpu, a few different ways. these are not
         # supported by all models, but we can still keep track of the options
@@ -1100,22 +1102,22 @@ class TorchAgent(ABC, Agent):
 
         :return: Percent of allocated GPU memory as a fraction of available.
         """
-        if not self.use_cuda:
-            return None
-        if self.opt['gpu'] == -1:
-            # use all gpus available locally
-            devices = range(torch.cuda.device_count())
-        else:
-            devices = [self.opt['gpu']]
-        memory_avail = 0
-        memory_used = 0
-        for dev in devices:
-            props = torch.cuda.get_device_properties(dev)
-            memory_avail += props.total_memory
-            memory_used += torch.cuda.memory_allocated(dev) + torch.cuda.memory_cached(
-                dev
-            )
-        return memory_used / memory_avail
+        # if not self.use_cuda:
+        return None
+        # if self.opt['gpu'] == -1:
+        #     # use all gpus available locally
+        #     devices = range(torch.cuda.device_count())
+        # else:
+        #     devices = [self.opt['gpu']]
+        # memory_avail = 0
+        # memory_used = 0
+        # for dev in devices:
+        #     props = torch.cuda.get_device_properties(dev)
+        #     memory_avail += props.total_memory
+        #     memory_used += torch.cuda.memory_allocated(dev) + torch.cuda.memory_cached(
+        #         dev
+        #     )
+        # return memory_used / memory_avail
 
     def receive_metrics(self, metrics_dict):
         if not hasattr(self, 'scheduler') or self.scheduler is None:

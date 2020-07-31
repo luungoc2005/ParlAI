@@ -6,6 +6,7 @@
 from parlai.core.torch_ranker_agent import TorchRankerAgent
 from parlai.utils.torch import padded_3d
 from parlai.zoo.bert.build import download
+from parlai.core.xla import xla_device
 
 from .bert_dictionary import BertDictionaryAgent
 from .helpers import (
@@ -122,8 +123,8 @@ class BiEncoderRankerAgent(TorchRankerAgent):
                         self.vocab_candidate_encs, enc_path, cand_type='vocab encodings'
                     )
                 if self.use_cuda:
-                    self.vocab_candidate_vecs = self.vocab_candidate_vecs.cuda()
-                    self.vocab_candidate_encs = self.vocab_candidate_encs.cuda()
+                    self.vocab_candidate_vecs = self.vocab_candidate_vecs.to(xla_device)
+                    self.vocab_candidate_encs = self.vocab_candidate_encs.to(xla_device)
             else:
                 self.vocab_candidates = None
                 self.vocab_candidate_vecs = None

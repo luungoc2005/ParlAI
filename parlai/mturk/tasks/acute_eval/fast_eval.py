@@ -550,10 +550,10 @@ class ParlAIQuickAcute(object):
         3. If a `task` is provided, convert the task to ACUTE format and load that.
         """
         for model in self.config_ids:
-            try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
+            # try:
+            #     torch.cuda.empty_cache()
+            # except Exception:
+            #     pass
             outfile = self._get_log_path(model)
 
             if not os.path.exists(outfile):

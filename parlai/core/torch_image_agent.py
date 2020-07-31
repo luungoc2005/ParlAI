@@ -12,6 +12,7 @@ from typing import List
 
 import torch
 
+from parlai.core.xla import xla_device
 from parlai.core.message import Message
 from parlai.core.torch_agent import Batch, TorchAgent
 
@@ -97,7 +98,7 @@ class TorchImageAgent(TorchAgent):
             features = features[0, :, 0, 0]
         assert features.size() == (self.image_features_dim,)
         if self.use_cuda:
-            features = features.cuda()
+            features = features.to(xla_device)
         else:
             features = features.cpu()
         if self.opt.get('fp16'):

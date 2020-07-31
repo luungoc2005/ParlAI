@@ -8,7 +8,7 @@
 Torch Classifier Agents classify text into a fixed set of labels.
 """
 
-
+from parlai.core.xla import xla_device
 from parlai.core.opt import Opt
 from parlai.utils.torch import PipelineHelper
 from parlai.core.torch_agent import TorchAgent, Output
@@ -350,10 +350,10 @@ class TorchClassifierAgent(TorchAgent):
                 if self.model_parallel:
                     self.model = PipelineHelper().make_parallel(self.model)
                 else:
-                    self.model.cuda()
+                    self.model.to(xla_device)
                 if self.data_parallel:
                     self.model = torch.nn.DataParallel(self.model)
-                self.criterion.cuda()
+                self.criterion.to(xla_device)
 
         if shared:
             # We don't use get here because hasattr is used on optimizer later.
@@ -395,7 +395,7 @@ class TorchClassifierAgent(TorchAgent):
 
         labels_tensor = torch.LongTensor(labels_indices_list)
         if self.use_cuda:
-            labels_tensor = labels_tensor.cuda()
+            labels_tensor = labels_tensor.to(xla_device)
         return labels_tensor
 
     def _update_confusion_matrix(self, batch, predictions):

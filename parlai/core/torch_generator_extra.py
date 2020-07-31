@@ -1,3 +1,4 @@
+from parlai.core.xla import xla_device
 from parlai.core.opt import Opt
 from parlai.core.torch_agent import History, Batch
 from parlai.core.torch_generator_agent import TorchGeneratorAgent, PPLMetric
@@ -158,9 +159,9 @@ class TorchGeneratorWithTokenType(TorchGeneratorAgent):
         you will need to override it to add additional fields.
         """
         return Batch(
-            text_vec=torch.ones(batchsize, maxlen).long().cuda(),
-            tokentype_vec=torch.ones(batchsize, maxlen).long().cuda(),
-            label_vec=torch.ones(batchsize, 2).long().cuda(),
+            text_vec=torch.ones(batchsize, maxlen).long().to(xla_device),
+            tokentype_vec=torch.ones(batchsize, maxlen).long().to(xla_device),
+            label_vec=torch.ones(batchsize, 2).long().to(xla_device),
             text_lengths=[maxlen] * batchsize,
         )
     

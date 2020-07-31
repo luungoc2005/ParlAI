@@ -17,6 +17,8 @@ import pickle
 import contextlib
 import parlai.utils.logging as logging
 
+from parlai.core.xla import xla_device
+
 try:
     import torch.nn
     import torch.version
@@ -162,7 +164,7 @@ def all_gather_list(data, max_size=16384):
         not hasattr(all_gather_list, '_buffer')
         or all_gather_list._buffer.numel() < buffer_size
     ):
-        all_gather_list._buffer = torch.cuda.ByteTensor(buffer_size)
+        all_gather_list._buffer = torch.ByteTensor(buffer_size).to(xla_device)
 
     buffer = all_gather_list._buffer
     buffer.zero_()
@@ -219,7 +221,7 @@ def sync_object(data, max_size=16384):
     # prepare the buffer
     if not hasattr(sync_object, '_buffer') or sync_object._buffer.numel() < max_size:
         # cuda is safe because distributed mode is only okay with CUDA
-        sync_object._buffer = torch.cuda.ByteTensor(max_size)
+        sync_object._buffer = torch.ByteTensor(max_size).to(xla_device)
 
     buffer = sync_object._buffer
 

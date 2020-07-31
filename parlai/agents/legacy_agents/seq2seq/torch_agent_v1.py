@@ -20,6 +20,7 @@ See below for documentation on each specific tool.
 
 from parlai.core.agents import Agent
 from parlai.core.build_data import modelzoo_path
+from parlai.core.xla import xla_device
 from .dict_v1 import DictionaryAgent
 from .utils_v1 import set_namedtuple_defaults, argsort, padded_tensor, NEAR_INF
 
@@ -307,14 +308,15 @@ class TorchAgent(Agent):
             torch.set_num_threads(1)
 
         # check for cuda
-        self.use_cuda = not opt['no_cuda'] and torch.cuda.is_available()
+        self.use_cuda = not opt['no_cuda']
         if self.use_cuda:
             if opt['multigpu'] and opt['gpu'] != -1:
                 raise ValueError("Can't use --multigpu and --gpu together.")
             if not shared:
                 print('[ Using CUDA ]')
             if not shared and opt['gpu'] != -1:
-                torch.cuda.set_device(opt['gpu'])
+                # torch.cuda.set_device(opt['gpu'])
+                pass
             # It's up to the user of TorchAgent to handle multiple GPU issues.
             # A typical approach would be to employ nn.DataParallel
             # (https://pytorch.org/docs/0.4.1/nn.html?highlight=dataparallel#torch.nn.DataParallel)
@@ -382,7 +384,7 @@ class TorchAgent(Agent):
                     for state in self.optimizer.state.values():
                         for k, v in state.items():
                             if isinstance(v, torch.Tensor):
-                                state[k] = v.cuda()
+                                state[k] = v.to(xla_device)
         # TODO: Move scheduler params to command line args
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, 'min', factor=0.5, patience=3, verbose=True

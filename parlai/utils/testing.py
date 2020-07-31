@@ -24,7 +24,7 @@ try:
     import torch
 
     TORCH_AVAILABLE = True
-    GPU_AVAILABLE = torch.cuda.device_count() > 0
+    GPU_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
     GPU_AVAILABLE = False

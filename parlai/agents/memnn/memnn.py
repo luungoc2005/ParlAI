@@ -9,7 +9,7 @@ from functools import lru_cache
 import torch
 
 from parlai.core.torch_ranker_agent import TorchRankerAgent
-
+from parlai.core.xla import xla_device
 from .modules import MemNN, opt_to_kwargs
 
 
@@ -237,7 +237,6 @@ class MemnnAgent(TorchRankerAgent):
                 if self.use_time_features:
                     padded[i, j, -1] = self.dict[self._time_feature(tf_offset - j)]
 
-        if self.use_cuda:
-            padded = padded.cuda()
+        padded = padded.to(xla_device)
 
         return padded

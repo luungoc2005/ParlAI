@@ -9,6 +9,7 @@ Provide functionality for loading images.
 """
 
 import parlai.core.build_data as build_data
+from parlai.core.xla import xla_device
 import parlai.utils.logging as logging
 
 import os
@@ -80,10 +81,10 @@ class ImageLoader:
         import torchvision.transforms as transforms
         import torch.nn as nn
 
-        self.use_cuda = not self.opt.get('no_cuda', False) and torch.cuda.is_available()
+        self.use_cuda = not self.opt.get('no_cuda', False)
         if self.use_cuda:
             logging.debug(f'Using CUDA')
-            torch.cuda.set_device(self.opt.get('gpu', -1))
+            # torch.cuda.set_device(self.opt.get('gpu', -1))
         self.torch = torch
         self.torchvision = torchvision
         self.transforms = transforms
@@ -118,7 +119,7 @@ class ImageLoader:
         )
 
         if self.use_cuda:
-            self.netCNN.cuda()
+            self.netCNN.to(xla_device)
 
     def _init_resnext_cnn(self):
         """
@@ -149,7 +150,7 @@ class ImageLoader:
             )
 
         if self.use_cuda:
-            self.netCNN.cuda()
+            self.netCNN.to(xla_device)
 
     def _image_mode_switcher(self):
         if self.image_mode not in IMAGE_MODE_SWITCHER:
@@ -174,7 +175,7 @@ class ImageLoader:
         # extract the image feature
         transform = self.transform(image).unsqueeze(0)
         if self.use_cuda:
-            transform = transform.cuda()
+            transform = transform.to(xla_device)
         with self.torch.no_grad():
             feature = self.netCNN(transform)
         # save the feature

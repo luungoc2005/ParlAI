@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 
+from parlai.core.xla import xla_device
 from parlai.core.opt import Opt
 from parlai.core.torch_ranker_agent import TorchRankerAgent
 from .biencoder import AddLabelFixedCandsTRA
@@ -119,7 +120,7 @@ class PolyencoderAgent(TorchRankerAgent):
         super().__init__(opt, shared)
         self.rank_loss = torch.nn.CrossEntropyLoss(reduce=True, size_average=True)
         if self.use_cuda:
-            self.rank_loss.cuda()
+            self.rank_loss.to(xla_device)
 
     def build_model(self, states=None):
         """

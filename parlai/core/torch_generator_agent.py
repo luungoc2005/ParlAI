@@ -26,6 +26,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from parlai.core.xla import xla_device
 from parlai.core.opt import Opt
 from parlai.utils.distributed import is_distributed, sync_parameters
 from parlai.core.torch_agent import TorchAgent, Batch, Output, DictionaryAgent
@@ -477,8 +478,8 @@ class TorchGeneratorAgent(TorchAgent, ABC):
                 if self.model_parallel:
                     self.model = PipelineHelper().make_parallel(self.model)
                 else:
-                    self.model.cuda()
-                self.criterion.cuda()
+                    self.model.to(xla_device)
+                self.criterion.to(xla_device)
 
             sync_parameters(self.model)
             train_params = trainable_parameters(self.model)
@@ -577,7 +578,7 @@ class TorchGeneratorAgent(TorchAgent, ABC):
             .clamp(max=3)  # cap at 3 for testing with tiny dictionaries
             .unsqueeze(0)
             .expand(batchsize, maxlen)
-            .cuda()
+            .to(xla_device)
         )
         # label vec has two tokens to make it interesting, but we we can't use the
         # start token, it's reserved.
@@ -585,7 +586,7 @@ class TorchGeneratorAgent(TorchAgent, ABC):
             torch.LongTensor([self.END_IDX, self.NULL_IDX])
             .unsqueeze(0)
             .expand(batchsize, 2)
-            .cuda()
+            .to(xla_device)
         )
         return Batch(
             text_vec=text_vec, label_vec=label_vec, text_lengths=[maxlen] * batchsize

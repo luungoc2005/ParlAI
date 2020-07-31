@@ -33,6 +33,7 @@ import random
 from parlai.core.agents import Agent
 from parlai.core.dict import DictionaryAgent
 from parlai.core.build_data import modelzoo_path
+from parlai.core.xla import xla_device
 from . import config
 from .utils import build_feature_dict, vectorize, batchify, normalize_text
 from .model import DocReaderModel
@@ -120,7 +121,7 @@ class DrqaAgent(Agent):
         # All agents keep track of the episode (for multiple questions)
         self.episode_done = True
 
-        self.opt['cuda'] = not self.opt['no_cuda'] and torch.cuda.is_available()
+        self.opt['cuda'] = not self.opt['no_cuda']
 
         if shared is not None:
             # model has already been set up
@@ -138,9 +139,9 @@ class DrqaAgent(Agent):
                 else:
                     self._init_from_scratch()
             if self.opt['cuda']:
-                print('[ Using CUDA (GPU %d) ]' % opt['gpu'])
-                torch.cuda.set_device(opt['gpu'])
-                self.model.cuda()
+                # print('[ Using CUDA (GPU %d) ]' % opt['gpu'])
+                # torch.cuda.set_device(opt['gpu'])
+                self.model.to(xla_device)
 
         # Set up params/logging/dicts
         self.id = self.__class__.__name__

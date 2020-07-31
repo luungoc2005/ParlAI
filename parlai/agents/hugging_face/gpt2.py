@@ -42,7 +42,7 @@ class GPT2Decoder(torch.nn.Module):
             self.transformer.resize_token_embeddings(len(dict.tokenizer))
             self.add_start_token = opt['add_start_token']
         # use cuda
-        self.use_cuda = not opt['no_cuda'] and torch.cuda.is_available()
+        self.use_cuda = not opt['no_cuda']
 
     def forward(self, input, encoder_state, incr_state=None):
         attention_mask = None

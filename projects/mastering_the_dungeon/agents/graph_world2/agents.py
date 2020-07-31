@@ -21,6 +21,7 @@ from projects.mastering_the_dungeon.tasks.graph_world2.graph import (
     DEDUP_OBJECTS,
     DEDUP_PROPS,
 )
+from parlai.core.xla import xla_device
 
 nlp = spacy.load('en')
 
@@ -500,7 +501,7 @@ class ModelAgentBase(Agent):
             params = filter(lambda p: p.requires_grad, self.model.parameters())
             self.optimizer = torch.optim.Adam(params, lr=opt['lr'])
             if opt['cuda']:
-                self.model.cuda()
+                self.model.to(xla_device)
         else:
             self.data_agent = shared['data_agent']
             self.model = shared['model']
@@ -515,7 +516,7 @@ class ModelAgentBase(Agent):
 
     def _get_variable(self, np_a, volatile=False):
         if self.opt['cuda']:
-            return Variable(torch.from_numpy(np_a).cuda(), volatile=volatile)
+            return Variable(torch.from_numpy(np_a).to(xla_device), volatile=volatile)
         return Variable(torch.from_numpy(np_a), volatile=volatile)
 
     def _get_f1(self, tokens_1, tokens_2):

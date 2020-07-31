@@ -401,8 +401,7 @@ class TorchDistilledGenerator(TorchGeneratorAgent):
         
         if scores.size(-1) < teacher_scores.size(-1):
             vocab_difference = teacher_scores.size(-1) - scores.size(-1)
-            zeros_vec = torch.zeros((*scores.size()[:-1], vocab_difference))
-            scores = torch.cat((scores, zeros_vec.type_as(scores)), dim=-1)
+            scores = F.pad(scores, (0, vocab_difference), "constant", 0)
             teacher_scores[:,:,-vocab_difference:] = 0 # also zeros out teacher outputs
 
         score_view = scores.view(-1, scores.size(-1))
@@ -435,13 +434,7 @@ class TorchDistilledGenerator(TorchGeneratorAgent):
 
         teacher_correct = ((batch.label_vec == teacher_preds) * notnull).sum(dim=-1)
         
-        self.record_local_metric(
-            'kl_loss', 
-            AverageMetric.many(
-                loss_kl, 
-                target_tokens
-            )
-        )
+        self.record_local_metric('kl_loss', AverageMetric.many(loss_kl, target_tokens))
         # print(loss.size())
         # print(target_tokens.size())
         self.record_local_metric('loss', AverageMetric.many(loss, target_tokens))

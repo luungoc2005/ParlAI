@@ -435,16 +435,18 @@ class TorchDistilledGenerator(TorchGeneratorAgent):
 
         teacher_correct = ((batch.label_vec == teacher_preds) * notnull).sum(dim=-1)
         
-        self.record_local_metric('kl_loss', AverageMetric.many(loss_kl, target_tokens))
+        self.record_local_metric('kl_loss', AverageMetric.many(loss_kl.detach().cpu(), target_tokens))
         # print(loss.size())
         # print(target_tokens.size())
-        self.record_local_metric('loss', AverageMetric.many(loss, target_tokens))
-        self.record_local_metric('ppl', PPLMetric.many(loss, target_tokens))
+        loss_cpu = loss.detach().cpu()
+        teacher_loss_cpu = teacher_loss.detach().cpu()
+        self.record_local_metric('loss', AverageMetric.many(loss_cpu, target_tokens))
+        self.record_local_metric('ppl', PPLMetric.many(loss_cpu, target_tokens))
         self.record_local_metric(
             'token_acc', AverageMetric.many(correct, target_tokens),
         )
-        self.record_local_metric('teacher_loss', AverageMetric.many(teacher_loss, target_tokens))
-        self.record_local_metric('teacher_ppl', PPLMetric.many(teacher_loss, target_tokens))
+        self.record_local_metric('teacher_loss', AverageMetric.many(teacher_loss_cpu, target_tokens))
+        self.record_local_metric('teacher_ppl', PPLMetric.many(teacher_loss_cpu, target_tokens))
         self.record_local_metric(
             'teacher_token_acc', AverageMetric.many(teacher_correct, target_tokens),
         )
